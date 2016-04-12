@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html><head>
+
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="robots" content="noindex,nofollow">
+
+<title>GAS (GNU Assembler) CFI Directive Usage for 32-bit and 64-bit PowerPC</title>
+</head><body dir="ltr" lang="en">
+<div id="page" dir="ltr" lang="en">
+
+<h1>GAS (GNU Assembler) CFI Directive Usage for 32-bit and 64-bit PowerPC</h1>
+
+<div dir="ltr" id="content" lang="en"><span class="anchor" id="top"></span>
+<span class="anchor" id="version"></span><em><strong>Version 1.0.0</strong></em><br><br>
+<span class="anchor" id="line-1"></span><p class="line867"><em><strong>Authored by: Ryan S. Arnold &lt;<a class="mailto" href="mailto:rsa@us.ibm.com">rsa@us.ibm.com</a>&gt;</strong></em><br>
+ <span class="anchor" id="line-2"></span><em><strong>Copyright (C) 2006, 2007, 2008, 2009 International Business Machines Corporation (IBM)</strong></em><br><br>
+ <span class="anchor" id="line-x"></span><em>Permission is granted to copy, distribute and/or modify this document<br>
+under the terms of the GNU Free Documentation License, Version 1.3<br>
+or any later version published by the Free Software Foundation;<br>
+with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.<br>
+A copy of the license is available from <a href="http://www.gnu.org/licenses/fdl-1.3.txt">http://www.gnu.org/licenses/fdl-1.3.txt</a>.</em><br>
+<span class="anchor" id="line-3"></span>
+</p><h1 id="head-e7b87ad7afabf506ad0f83d553e7560237534961">Table Of Contents</h1>
+<span class="anchor" id="line-4"></span><p class="line867"></p><div class="table-of-contents"><p class="table-of-contents-heading"></p><ol><li><a href="#head-86cc854c0c8d8be12724d62c6d7499a7cddcbcb4">Introduction to GAS CFI Usage</a></li><li><a href="#head-25e0e927cb0344f56c68d77bb92b22aa4194813b">GAS CFI directives used with powerpc32 and powerpc64 assembly programs</a></li><li><a href="#head-23d5f77814e5a6d7d39889462f0c7d20880cfaf4">Example GAS CFI directive usage</a><ol><li><a href="#head-45c1e9ac305f93c1f5bb501c168de75d84022537">.cfi_startproc and .cfi_endproc</a></li><li><a href="#head-4bc00e04a0e62f738e195982ccb879175c202f5e">.cfi_adjust_cfa_offset</a></li><li><a href="#head-4c14d27d4c61eedcc63da012462f03ccf4e0c667">.cfi_offset</a></li><li><a href="#head-bff2abf2b6f38ee8eeba761168aca59193f65cbb">.cfi_register and .cfi_same_value</a></li></ol></li><li><a href="#head-588828c0f05b7b11d39263bfe49351ff0c267b55">Quick Synopsis of Rules</a></li><li><a href="#head-4272cff90c0357b25208ae4cb8004ce5211ae613">References</a></li><li><a href="#head-265ffd2aea743199133efd0de6fdd464acb9a578">FootNotes</a></li></ol></div> <span class="anchor" id="line-5"></span>
+<h1 id="head-86cc854c0c8d8be12724d62c6d7499a7cddcbcb4">Introduction to GAS CFI Usage</h1>
+<span class="anchor" id="line-6"></span><p class="line862">This document outlines the <em><strong>required</strong></em><strong></strong> method for using GAS (GNU Assembler) <strong>CFI</strong> (Call Frame Information) directives in PowerPC assembly <span class="anchor" id="line-7"></span>programs. <span class="anchor" id="line-8"></span><span class="anchor" id="line-9"></span></p><p class="line862">CFI
+directives are pseudo-assembler instructions which direct the GAS (Gnu
+Assembler) to add call frame information to an executable's
+.debug_frame per the requirement of the DWARF 2 debugging information
+format specification. CFI information provides debuggers with a way to,
+<em>"virtually unwind the stack of activations until it finds the activation of interest.<sup><a href="#fndef-5d74313910cbbdea2260671d80f7fdfa555caf32-0" id="fnref-5d74313910cbbdea2260671d80f7fdfa555caf32-0">1</a></sup>"</em>
+The GCC compiler utilizes DWARF 2 CFI information for exception
+handling. In the event of an exception raised in a hand-written
+assembly routine CFI information can provide the unwinder with the
+information needed to properly handle the exception. <span class="anchor" id="line-10"></span><span class="anchor" id="line-11"></span></p><ul><li><p class="line862">This document attempts to highlight CFI directive usage on both <strong>powerpc32</strong> and <strong>powerpc64</strong>
+which can have divergent ABI specifications at times so there may be
+differences in required cfi directives. Please see the references
+section at the bottom of this document for more on the ABIs referenced.
+<span class="anchor" id="line-12"></span><span class="anchor" id="line-13"></span></p></li></ul><p class="line874">This document is predicated on the following criteria: <span class="anchor" id="line-14"></span></p><ul><li><p class="line891"><em><strong>adherence to the PIC (Position Independent Code) standard<sup><a href="#fndef-49b319fc2a15c15d99cae89ce82ff8230844bd84-1" id="fnref-49b319fc2a15c15d99cae89ce82ff8230844bd84-1">2</a></sup>.</strong></em> <span class="anchor" id="line-15"></span></p></li><li><p class="line891"><em><strong>use of secure PLT<sup><a href="#fndef-ef1d62be46a22d2142ed445bf63cf0bc3785e99d-2" id="fnref-ef1d62be46a22d2142ed445bf63cf0bc3785e99d-2">3</a></sup> (procedure lookup table).</strong></em> <span class="anchor" id="line-16"></span></p></li></ul><p class="line867">
+</p><h1 id="head-25e0e927cb0344f56c68d77bb92b22aa4194813b">GAS CFI directives used with powerpc32 and powerpc64 assembly programs</h1>
+<span class="anchor" id="line-17"></span><ul><li><p class="line891"><strong><a href="#cfi_startproc">.cfi_startproc</a></strong> <span class="anchor" id="line-18"></span></p><ul><li><p class="line862">This directive is required to be placed at the beginning of every assembler function body.<br>
+ <span class="anchor" id="line-19"></span></p></li></ul></li><li><p class="line891"><strong><a href="#cfi_endproc">.cfi_endproc</a></strong> <span class="anchor" id="line-20"></span></p><ul><li><p class="line862">This directive is required to follow all .cfi_startproc instances just prior to function exit (blr).<br>
+ <span class="anchor" id="line-21"></span></p></li></ul></li><li><p class="line891"><strong><a href="#cfi_adjust_cfa_offset">.cfi_adjust_cfa_offset</a></strong> <em><strong>offset</strong></em><br>
+ <span class="anchor" id="line-22"></span></p><ul><li><p class="line862">This directive tells the unwinder that the CFA (<em>Canonical Frame Address</em>) is offset by "<em><strong>offset</strong></em>" amount.  This generally indicates a stack-frame has been stacked and the stack pointer has been adjusted.<br>
+ <span class="anchor" id="line-23"></span></p></li></ul></li><li><p class="line891"><strong><a href="#cfi_offset">.cfi_offset</a></strong> <em><strong>reg</strong></em><strong></strong>,<em><strong>offset amt</strong></em> <span class="anchor" id="line-24"></span></p><ul><li><p class="line862">This directive tells the unwinder that the register <strong>reg</strong> is stored in the stack-frame at offset <strong>amt</strong>.   <span class="anchor" id="line-25"></span></p></li></ul></li><li><p class="line891"><strong><a href="#cfi_register">.cfi_register</a></strong> <em><strong>from</strong></em><strong></strong>, <em><strong>to</strong></em><br>
+ <span class="anchor" id="line-26"></span></p><ul><li><p class="line862">This directive tells the unwinder that the value in register "<em><strong>from</strong></em><strong></strong>" was saved to register "<em><strong>to</strong></em>".<br>
+ <span class="anchor" id="line-27"></span></p></li></ul></li><li><p class="line891"><strong><a href="#cfi_same_value">.cfi_same_value</a></strong> <em><strong>reg</strong></em><br>
+ <span class="anchor" id="line-28"></span></p><ul><li><p class="line862">This directive tells the unwinder that the value previously in the register <em><strong>reg</strong></em><strong></strong> has been restored.  It should always follow the <strong>.cfi_register</strong> directive after the original content of register <em><strong>reg</strong></em> has been restored.<br>
+ <span class="anchor" id="line-29"></span></p></li></ul></li></ul><p class="line867"><span class="anchor" id="cfi_startproc"></span><span class="anchor" id="cfi_endproc"></span> <span class="anchor" id="line-30"></span>
+</p><h1 id="head-23d5f77814e5a6d7d39889462f0c7d20880cfaf4">Example GAS CFI directive usage</h1>
+<span class="anchor" id="line-31"></span><p class="line867">
+</p><h2 id="head-45c1e9ac305f93c1f5bb501c168de75d84022537">.cfi_startproc and .cfi_endproc</h2>
+<span class="anchor" id="line-32"></span><p class="line862">These CFI
+directives are to be included in all functions. At a minimum, a leaf
+routine which doesn't modify the non-volatiles or the link register, <strong>lr</strong>, simply needs to use the <strong>.cfi_startproc</strong> and <strong>.cfi_endproc</strong>
+directives. Routines which require branching, pushing the stack frame,
+or clobbering the link register may require further CFI directives. <span class="anchor" id="line-33"></span><span class="anchor" id="line-34"></span></p><p class="line867"><span class="anchor" id="cfi_adjust_cfa_offset"></span> <span class="anchor" id="line-35"></span>
+</p><h2 id="head-4bc00e04a0e62f738e195982ccb879175c202f5e">.cfi_adjust_cfa_offset</h2>
+<span class="anchor" id="line-36"></span><p class="line862">If a
+function needs to branch to other functions, spill non-volatile
+registers to the stack, or provide stack space to hold local variables
+it may require that a stack frame be allocated (<strong>powerpc64</strong>
+doesn't need to stack a frame to use the unallocated stack space as
+long as the routine is a leaf). This is done by adjusting the
+stack-frame pointer held in <em>general purpose register 1</em> (<strong>gpr1</strong>)
+to a negative offset (since the stack grows toward lower addresses) and
+storing the backchain pointer to the previous stack-frame at the new
+stack pointer address. <span class="anchor" id="line-37"></span></p><ul><li>To allocate a stack-frame: <span class="anchor" id="line-38"></span><ul><li><p class="line862">the <em><strong>powerpc32</strong></em><strong></strong> architecture uses: <strong><tt>stwu&nbsp;&nbsp;r1,-x(r1)</tt></strong> <span class="anchor" id="line-39"></span></p></li><li><p class="line862">the <em><strong>powerpc64</strong></em><strong></strong> architecture uses: <strong><tt>stdu&nbsp;&nbsp;r1,-x(r1)</tt></strong> <span class="anchor" id="line-40"></span></p></li></ul></li></ul><p class="line862">These store and update operations store the current address of the stack pointer, held in r1, to the effective address of <strong>-x(r1)</strong>.  The stack pointer in r1 is then updated to point to that effective address. <span class="anchor" id="line-41"></span><span class="anchor" id="line-42"></span></p><p class="line862">Once the frame is stacked the adjustment needs to be recorded in the call-frame information.  This is done with the <strong>.cfi_adjust_cfa_offset</strong>.<br>
+<br>
+ <span class="anchor" id="line-43"></span>Given the following c program as reference: <span class="anchor" id="line-44"></span><span class="anchor" id="line-45"></span></p><pre>int main() {
+<span class="anchor" id="line-46"></span>        int temp01;
+<span class="anchor" id="line-47"></span>        int temp02;
+<span class="anchor" id="line-48"></span>
+<span class="anchor" id="line-49"></span>        temp01 = 9;
+<span class="anchor" id="line-50"></span>        return temp01;
+<span class="anchor" id="line-51"></span>}
+<span class="anchor" id="line-52"></span></pre><span class="anchor" id="line-53"></span><p class="line862">we'll investigate the following equivalent <strong>-m32</strong> assembly code and insert the appropriate .cfi directives. <span class="anchor" id="line-54"></span><span class="anchor" id="line-55"></span></p><pre>        .file   "test2.c"
+<span class="anchor" id="line-56"></span>        .section        ".text"
+<span class="anchor" id="line-57"></span>        .align 2
+<span class="anchor" id="line-58"></span>        .globl main
+<span class="anchor" id="line-59"></span>        .type   main, @function
+<span class="anchor" id="line-60"></span>main:
+<span class="anchor" id="line-61"></span>        .cfi_startproc                # required .cfi_startproc directive
+<span class="anchor" id="line-62"></span>        stwu 1,-32(1)                 # Stack a frame of 32 bytes.
+<span class="anchor" id="line-63"></span>        .cfi_adjust_cfa_offset 32     # .cfi_adjust_cfa_offset directive to match stwu 
+<span class="anchor" id="line-64"></span>        stw 31,24(1)                  # spill non-volatile gpr31 to the stack
+<span class="anchor" id="line-65"></span>        .cfi_offset 31,24             # .cfi_offset gpr31 at stack ptr offset 24.
+<span class="anchor" id="line-66"></span>        mr 31,1
+<span class="anchor" id="line-67"></span>        li 0,9
+<span class="anchor" id="line-68"></span>        stw 0,12(31)
+<span class="anchor" id="line-69"></span>        lwz 0,12(31)
+<span class="anchor" id="line-70"></span>        mr 3,0
+<span class="anchor" id="line-71"></span>        lwz 11,0(1)
+<span class="anchor" id="line-72"></span>        lwz 31,-8(11)
+<span class="anchor" id="line-73"></span>        mr 1,11
+<span class="anchor" id="line-74"></span>        .cfi_endproc                  # required .cfi_endproc directive
+<span class="anchor" id="line-75"></span>        blr
+<span class="anchor" id="line-76"></span>        .size   main,.-main
+<span class="anchor" id="line-77"></span>        .ident  "GCC: (GNU) 4.1.0 20060111 (prerelease)"
+<span class="anchor" id="line-78"></span>        .section        .note.GNU-stack,"",@progbits
+<span class="anchor" id="line-79"></span></pre><span class="anchor" id="line-80"></span><p class="line862">The previous example utilizes <strong>.cfi_offset</strong> as well since the program spills non-volatile register <strong>grp31</strong> to the stack because it intends to use <strong>gpr31</strong> for a later operation. <span class="anchor" id="line-81"></span><span class="anchor" id="cfi_offset"></span> <span class="anchor" id="line-82"></span>
+</p><h2 id="head-4c14d27d4c61eedcc63da012462f03ccf4e0c667">.cfi_offset</h2>
+<span class="anchor" id="line-83"></span><p class="line862">This directive tells the unwinder that a particular register, <em><strong>reg</strong></em><strong></strong>, has been stored in a stack-frame at offset <em><strong>amt</strong></em><strong></strong>
+(from the current stack pointer). This directive is used in a routine
+that will branch and link, thereby clobbering the link-register and
+requiring that the <strong>lr</strong> be spilled to the <strong>LR Save Area</strong>.
+The unwinder needs to know where the link-register is saved. This
+directive should be used when any non-volatile register is spilled to
+the stack. <span class="anchor" id="line-84"></span><span class="anchor" id="line-85"></span></p><p class="line862">Depending on the architecture the <em>offset amt</em> varies based upon the ELF ABI for that architecture.<br>
+ <span class="anchor" id="line-86"></span></p><ul><li><p class="line891"><strong>powerpc32</strong> defines the LR Save Area as <strong>+4</strong> bytes offset from the stack pointer.<br>
+ <span class="anchor" id="line-87"></span></p></li><li><p class="line891"><strong>powerpc64</strong> defines the LR Save Area as <strong>+16</strong> bytes offset from the stack pointer <sup><a href="#fndef-ac6506d7eb7fa83f68ebfeed093a85cc6731154e-3" id="fnref-ac6506d7eb7fa83f68ebfeed093a85cc6731154e-3">4</a></sup>.<br>
+<br>
+ <span class="anchor" id="line-88"></span></p></li></ul><p class="line874">Given the following c program as reference: <span class="anchor" id="line-89"></span><span class="anchor" id="line-90"></span></p><pre>void func() {
+<span class="anchor" id="line-91"></span>}
+<span class="anchor" id="line-92"></span>
+<span class="anchor" id="line-93"></span>int main() {
+<span class="anchor" id="line-94"></span>        func();
+<span class="anchor" id="line-95"></span>        return;
+<span class="anchor" id="line-96"></span>}
+<span class="anchor" id="line-97"></span></pre><span class="anchor" id="line-98"></span><p class="line862">we'll investigate the following equivalent <strong>-m64</strong> assembly code and insert the appropriate .cfi directives. <span class="anchor" id="line-99"></span><span class="anchor" id="line-100"></span></p><pre>        .file   "test3.c"
+<span class="anchor" id="line-101"></span>        .section        ".toc","aw"
+<span class="anchor" id="line-102"></span>        .section        ".text"
+<span class="anchor" id="line-103"></span>        .align 2
+<span class="anchor" id="line-104"></span>        .globl func
+<span class="anchor" id="line-105"></span>        .section        ".opd","aw"
+<span class="anchor" id="line-106"></span>        .align 3
+<span class="anchor" id="line-107"></span>func:
+<span class="anchor" id="line-108"></span>        .quad   .L.func,.TOC.@tocbase,0
+<span class="anchor" id="line-109"></span>        .previous
+<span class="anchor" id="line-110"></span>        .type   func, @function
+<span class="anchor" id="line-111"></span>.L.func:
+<span class="anchor" id="line-112"></span>        .cfi_startproc             # required .cfi_startproc directive
+<span class="anchor" id="line-113"></span>        std 31,-8(1)               # spill non-volatile gpr31 to a new stack-frame.
+<span class="anchor" id="line-114"></span>        .cfi_offset 31, -8         # .cfi_offset gpr31 to -8 in a new stack frame. 
+<span class="anchor" id="line-115"></span>        stdu 1,-64(1)              # stack a frame of size 64 and save the backchain ptr.
+<span class="anchor" id="line-116"></span>        .cfi_adjust_cfa_offset 64  # .cfi_adjust_cfa_offset directive to match stdu
+<span class="anchor" id="line-117"></span>        mr 31,1
+<span class="anchor" id="line-118"></span>        ld 1,0(1)
+<span class="anchor" id="line-119"></span>        ld 31,-8(1)
+<span class="anchor" id="line-120"></span>        .cfi_endproc               # required .cfi_endproc directive
+<span class="anchor" id="line-121"></span>        blr
+<span class="anchor" id="line-122"></span>        .long 0
+<span class="anchor" id="line-123"></span>        .byte 0,0,0,0,128,1,0,1
+<span class="anchor" id="line-124"></span>        .size   func,.-.L.func
+<span class="anchor" id="line-125"></span>        .align 2
+<span class="anchor" id="line-126"></span>        .globl main
+<span class="anchor" id="line-127"></span>        .section        ".opd","aw"
+<span class="anchor" id="line-128"></span>        .align 3
+<span class="anchor" id="line-129"></span>main:
+<span class="anchor" id="line-130"></span>        .quad   .L.main,.TOC.@tocbase,0
+<span class="anchor" id="line-131"></span>        .previous
+<span class="anchor" id="line-132"></span>        .type   main, @function
+<span class="anchor" id="line-133"></span>.L.main:
+<span class="anchor" id="line-134"></span>        .cfi_startproc             # required .cfi_startproc directive
+<span class="anchor" id="line-135"></span>        mflr 0                     # store contents of lr in gpr0
+<span class="anchor" id="line-136"></span>        std 31,-8(1)               # spill non-volatile gpr31 to a new stack-frame.
+<span class="anchor" id="line-137"></span>        .cfi_offset 31, -8         # .cfi_offset the gpr31 to -8 in a new stack frame. 
+<span class="anchor" id="line-138"></span>        std 0,16(1)                # store addr in gpr0 on stack at stack-ptr offset +16.
+<span class="anchor" id="line-139"></span>        .cfi_offset lr, 16         # .cfi_offset the lr to 16 in the stack frame.
+<span class="anchor" id="line-140"></span>        stdu 1,-128(1)             # stack a frame of size 128 and save backchain ptr.
+<span class="anchor" id="line-141"></span>        .cfi_adjust_cfa_offset 128 # .cfi_adjust_cfa_offset directive to match stdu
+<span class="anchor" id="line-142"></span>        mr 31,1
+<span class="anchor" id="line-143"></span>        bl func
+<span class="anchor" id="line-144"></span>        nop
+<span class="anchor" id="line-145"></span>        ld 1,0(1)
+<span class="anchor" id="line-146"></span>        ld 0,16(1)                 # load gpr0 with addr at stack-ptr offset +16 (LR save).
+<span class="anchor" id="line-147"></span>        mtlr 0                     # restore LR contents of gpr0
+<span class="anchor" id="line-148"></span>        ld 31,-8(1)
+<span class="anchor" id="line-149"></span>        .cfi_endproc               # required .cfi_endproc directive
+<span class="anchor" id="line-150"></span>        blr
+<span class="anchor" id="line-151"></span>        .long 0
+<span class="anchor" id="line-152"></span>        .byte 0,0,0,1,128,1,0,1
+<span class="anchor" id="line-153"></span>        .size   main,.-.L.main
+<span class="anchor" id="line-154"></span>        .ident  "GCC: (GNU) 4.1.0 20060111 (prerelease)"
+<span class="anchor" id="line-155"></span>
+<span class="anchor" id="line-156"></span></pre><span class="anchor" id="line-157"></span><p class="line862">In the preceding example we know that <strong>main</strong> isn't a leaf function so we need to save the <strong>lr</strong> to the <strong>LR Save Area</strong>.  Since the contents of <strong>lr</strong> were transfered to register <strong>gpr0</strong> and then stored in the previous stack-frame's <em><strong>LR Save Area</strong></em> we didn't need to account for the fact that it was temporarily stored to a register first with <strong>.cfi_register</strong>. As highlighted in the next section, that is only required when a leaf-function doesn't need to save the <strong>lr</strong> to the <strong>LR Save Area</strong>. <span class="anchor" id="line-158"></span><span class="anchor" id="cfi_register"></span><span class="anchor" id="cfi_same_value"></span> <span class="anchor" id="line-159"></span>
+</p><h2 id="head-bff2abf2b6f38ee8eeba761168aca59193f65cbb">.cfi_register and .cfi_same_value</h2>
+<span class="anchor" id="line-160"></span><p class="line862">When an assembly program needs to temporarily store the contents of one register to another the <strong>.cfi_register</strong> cfi directive is required to follow the register clobber.  Most often this is required on <strong>powerpc32</strong> in leaf functions where the link-register is used to locate the address of the <strong>.got</strong> section (for use in finding global variables) but where the <strong>lr</strong> is not saved to the stack because the function doesn't branch.  The contents of the <strong>lr</strong> must be saved into another register temporarily and the unwinder needs to be able to know this.  The <strong>.cfi_same_value</strong> is used to tell the unwinder that the value of <strong>lr</strong> has been restored. <span class="anchor" id="line-161"></span><span class="anchor" id="line-162"></span></p><p class="line874">Given the following c program as reference: <span class="anchor" id="line-163"></span><span class="anchor" id="line-164"></span></p><pre>static stat = 99;
+<span class="anchor" id="line-165"></span>int main() {
+<span class="anchor" id="line-166"></span>        return stat;
+<span class="anchor" id="line-167"></span>}
+<span class="anchor" id="line-168"></span></pre><span class="anchor" id="line-169"></span><p class="line862">we'll investigate the following equivalent <strong>-m32</strong> assembly code and insert the appropriate .cfi directives. <span class="anchor" id="line-170"></span><span class="anchor" id="line-171"></span></p><pre>#powerpc32 assembler example
+<span class="anchor" id="line-172"></span>        .file   "test.c"
+<span class="anchor" id="line-173"></span>        .section        ".data"
+<span class="anchor" id="line-174"></span>        .align 2
+<span class="anchor" id="line-175"></span>        .type   stat, @object
+<span class="anchor" id="line-176"></span>        .size   stat, 4
+<span class="anchor" id="line-177"></span>stat:
+<span class="anchor" id="line-178"></span>        .long   99
+<span class="anchor" id="line-179"></span>        .section        ".text"
+<span class="anchor" id="line-180"></span>        .align 2
+<span class="anchor" id="line-181"></span>        .globl main
+<span class="anchor" id="line-182"></span>        .type   main, @function
+<span class="anchor" id="line-183"></span>main:
+<span class="anchor" id="line-184"></span>        .cfi_startproc                # required .cfi_startproc directive
+<span class="anchor" id="line-185"></span>        stwu 1,-16(1)                 # stack a 16 byte frame and save the backchain ptr.
+<span class="anchor" id="line-186"></span>        .cfi_adjust_cfa_offset 16     # .cfi_adjust_cfa_offset directive to match stwu
+<span class="anchor" id="line-187"></span>        stw 30,8(1)                   # spill gpr30 to stack at positive offset 8
+<span class="anchor" id="line-188"></span>        .cfi_offset 30,8              # .cfi_offset to tell unwinder where to find gpr30
+<span class="anchor" id="line-189"></span>        stw 31,12(1)                  # spill gpr31 to stack at positive offset 12
+<span class="anchor" id="line-190"></span>        .cfi_offset 31,12             # .cfi_offset to tell unwinder where to find gpr31
+<span class="anchor" id="line-191"></span>        mr 31,1 
+<span class="anchor" id="line-192"></span>        mflr 12                       # store LR into grp12
+<span class="anchor" id="line-193"></span>        .cfi_register lr,12           # cfi directive to denote that LR was saved to gpr 12.
+<span class="anchor" id="line-194"></span>        bcl 20,31,.LCF0               # branch to label LCF0
+<span class="anchor" id="line-195"></span>.LCF0:
+<span class="anchor" id="line-196"></span>        mflr 30                       # addr to LCF0 is now in LR
+<span class="anchor" id="line-197"></span>        addis 30,30,_GLOBAL_OFFSET_TABLE_-.LCF0@ha
+<span class="anchor" id="line-198"></span>        addi 30,30,_GLOBAL_OFFSET_TABLE_-.LCF0@l
+<span class="anchor" id="line-199"></span>        mtlr 12                       # restore the lr from gpr12.
+<span class="anchor" id="line-200"></span>        .cfi_same_value lr            # cfi directive to denote that LR was restored.
+<span class="anchor" id="line-201"></span>        lwz 9,stat@got(30)
+<span class="anchor" id="line-202"></span>        lwz 0,0(9)
+<span class="anchor" id="line-203"></span>        mr 3,0
+<span class="anchor" id="line-204"></span>        lwz 11,0(1)
+<span class="anchor" id="line-205"></span>        lwz 30,-8(11)
+<span class="anchor" id="line-206"></span>        lwz 31,-4(11)
+<span class="anchor" id="line-207"></span>        mr 1,11
+<span class="anchor" id="line-208"></span>        .cfi_endproc                  # required .cfi_endproc directive
+<span class="anchor" id="line-209"></span>        blr
+<span class="anchor" id="line-210"></span>        .size   main,.-main
+<span class="anchor" id="line-211"></span>        .ident  "GCC: (GNU) 4.1.0 20060111 (prerelease)"
+<span class="anchor" id="line-212"></span>        .section        .note.GNU-stack,"",@progbits
+<span class="anchor" id="line-213"></span></pre><span class="anchor" id="line-214"></span><p class="line862">The <em><strong>powerpc64</strong></em> ELF Abi specifies that a pointer to a construct known as the <em>"Table of Contents"</em> (<strong>.toc</strong>) always be stored in <em>"general purpose register 2"</em>.  Absolute addresses or global data can be found by specifying an offset from the .toc pointer held in <strong>gpr2</strong> since the .toc can hold both addresses and data.  <em>The <strong>.cfi_register</strong> directive is generally not needed in assembler programs written for powerpc64 when using static or global variables.</em><br>
+<br>
+ <span class="anchor" id="line-215"></span><span class="anchor" id="line-216"></span></p><p class="line867">
+</p><h1 id="head-588828c0f05b7b11d39263bfe49351ff0c267b55">Quick Synopsis of Rules</h1>
+<span class="anchor" id="line-217"></span><ol type="1"><li><p class="line862">A leaf routine which doesn't modify the non-volatile registers, the link-register, or stack a frame simply needs to use the <strong>.cfi_startproc</strong> and <strong>.cfi_endproc</strong> directives. <span class="anchor" id="line-218"></span></p></li><li><p class="line862">If a routine needs to clobber the <strong>lr</strong> because it needs to branch it must save the <strong>lr</strong> to the <strong>LR Save Area</strong> on the stack and use the <strong>.cfi_offset</strong> directive to tell the unwinder where to find the <strong>lr</strong>.  It will most likely need to stack a frame as well which requires the <strong>.cfi_adjust_cfa_offset</strong> directive. <span class="anchor" id="line-219"></span></p></li><li><p class="line862">If a routine needs to spill non-volatile registers to the stack the <strong>.cfi_offset</strong> directive is required after each spill operation. <span class="anchor" id="line-220"></span></p><ol type="1"><li><p class="line862">on <strong>powerpc32</strong>
+it is required that a frame be stacked to spill registers regardless of
+whether the routine is a leaf or not. This requires the <strong>.cfi_adjust_cfa_offset</strong> directive. <span class="anchor" id="line-221"></span></p></li><li><p class="line862">on <strong>powerpc64</strong> a leaf routine doesn't need to stack a frame to spill registers to the unallocated stack space. <span class="anchor" id="line-222"></span></p></li></ol></li><li><p class="line862">If a routine needs to allocate temporary local space by stacking a frame it needs to use the <strong>.cfi_adjust_cfa_offset</strong> directive. <span class="anchor" id="line-223"></span></p></li><li><p class="line862">When you need to access a static or global variable in <strong>powerpc32</strong> but the function doesn't branch use the <strong>.cfi_register</strong> and <strong>.cfi_same_value</strong> directives to denote that the <strong>lr</strong> was saved to another register temporarily (but not spilled to the stack).  This is not required on <strong>powerpc64</strong> because static and global variables can be referenced directly with an offset to the <strong>.toc</strong> pointer which is held in <strong>gpr2</strong>. <span class="anchor" id="line-224"></span></p></li><li><p class="line891"><em><strong>Note:</strong> It is common to have one or more cfi directives in the same routine.</em> <span class="anchor" id="line-225"></span><span class="anchor" id="line-226"></span></p></li></ol><p class="line867"><span class="anchor" id="line-227"></span><span class="anchor" id="line-228"></span></p><p class="line867">
+</p><h1 id="head-4272cff90c0357b25208ae4cb8004ce5211ae613">References</h1>
+<span class="anchor" id="line-229"></span><ul><li><p class="line891"><strong><a class="http" href="http://refspecs.freestandards.org/dwarf/dwarf-2.0.0.pdf">DWARF Debugging Information Format Revision 2.0.0</a></strong><em>, (July 27, 1993)</em> <span class="anchor" id="line-230"></span></p></li><li><p class="line891"><strong><a class="http" href="http://refspecs.freestandards.org/elf/gabi41.pdf">System V Application Binary Interface Version 4.1</a></strong><em>, (Santa Cruz Operation, Inc, AT&amp;T, March 18, 1997)</em> <span class="anchor" id="line-231"></span></p></li><li><p class="line891"><strong><a class="http" href="http://refspecs.freestandards.org/elf/gabi4+/ch4.intro.html">System V Application Binary Interface Chapters 4 &amp; 5 Revision 11</a></strong><em>, (Santa Cruz Operation, Inc April 24, 2001)</em> <span class="anchor" id="line-232"></span></p></li><li><p class="line891"><strong><a class="http" href="http://refspecs.freestandards.org/elf/elfspec_ppc.pdf">System V Application Binary Interface PowerPC Processor Supplement</a></strong><em>, (Steve Zucker, <tt>SunSoft</tt>, Kari Karhi, IBM, September 1995)</em> <span class="anchor" id="line-233"></span></p></li><li><p class="line891"><strong><a class="ftp" href="ftp://ftp.penguinppc64.org/pub/people/amodra/PPC-elf64abi.txt.gz">powerpc64 ELF ABI</a></strong> <span class="anchor" id="line-234"></span></p></li><li><p class="line891"><strong><a class="http" href="http://www.linuxbase.org/spec/ELF/ppc64/PPC-elf64abi-1.7.html">64-bit PowerPC ELF Application Binary Interface Supplement 1.7</a></strong><em> (Ian Lance Taylor, Zembu Labs, 2004)</em> <span class="anchor" id="line-235"></span></p></li><li><p class="line891"><strong>The PowerPC Architecture: A Specification for a New Family of RISC Processors, 2nd. Ed</strong><em>, (Morgan Kaufmann, May 1994, ISBN 1-55860-316-6)</em> <span class="anchor" id="line-236"></span></p></li><li><p class="line891"><strong>info gas</strong> Gnu Assembler 'info' page. <span class="anchor" id="line-237"></span></p></li><li><p class="line891"><strong><a class="http" href="http://www.logix.cz/michal/devel/gas-cfi/">GAS cfi</a></strong> Gnu Assembler <strong>CFI</strong> directive reference. <span class="anchor" id="line-238"></span><span class="anchor" id="line-239"></span></p></li></ul><p class="line867">
+</p><h1 id="head-265ffd2aea743199133efd0de6fdd464acb9a578">FootNotes</h1>
+<span class="anchor" id="line-240"></span><div class="footnotes"><ul><li><p><a
+href="#fnref-5d74313910cbbdea2260671d80f7fdfa555caf32-0"
+id="fndef-5d74313910cbbdea2260671d80f7fdfa555caf32-0">1</a> The "DWARF
+Debugging Information Format, Revision 2.0.0 (July 27, 1993)", Section 6.4
+Call Frame Information </p></li><li><p><a
+href="#fnref-49b319fc2a15c15d99cae89ce82ff8230844bd84-1"
+id="fndef-49b319fc2a15c15d99cae89ce82ff8230844bd84-1">2</a> <a
+class="http"
+href="http://www.dbforums.com/printthread.php?t=1077340">Description of
+-fpic and -fPIC.</a> </p></li><li><p><a
+href="#fnref-ef1d62be46a22d2142ed445bf63cf0bc3785e99d-2"
+id="fndef-ef1d62be46a22d2142ed445bf63cf0bc3785e99d-2">3</a> <a
+class="http"
+href="http://www.cygwin.com/ml/binutils/2005-05/txt00011.txt">PowerPC
+implementation details for a secure .plt section.</a> </p></li><li><p><a
+href="#fnref-ac6506d7eb7fa83f68ebfeed093a85cc6731154e-3"
+id="fndef-ac6506d7eb7fa83f68ebfeed093a85cc6731154e-3">4</a> <a
+class="http"
+href="http://www.linuxbase.org/spec/ELF/ppc64/PPC-elf64abi-1.7.html#DYNAM-STACK">64-bit
+PowerPC ELF Application Binary Interface Supplement 1.7</a>, Section
+3.5.13.  Dynamic Stack Space Allocation </p></li></ul></div><span
+class="anchor" id="bottom"></span></div><p id="pageinfo" class="info"
+dir="ltr" lang="en"><i>(last edited 2008-09-23 09:50:21 by <span title="rsa@campionlap.rchland.ibm.com[9.10.86.95]"><a class="mailto" href="mailto:rsa@us.ibm.com" title="rsa @ campionlap.rchland.ibm.com[9.10.86.95]">rsa@us.ibm.com</a></span>)</i></p>
+<div id="pagebottom"></div>
+</div>
+</body></html>

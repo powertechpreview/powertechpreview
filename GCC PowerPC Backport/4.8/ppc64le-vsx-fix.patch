@@ -1,0 +1,187 @@
+From aef143c6e0212ab7ada7ed59c7fb497f487a0d82 Mon Sep 17 00:00:00 2001
+From: wschmidt <wschmidt@138bc75d-0d04-0410-961f-82ee72b054a4>
+Date: Fri, 18 Apr 2014 13:29:30 +0000
+Subject: [PATCH] [gcc]
+
+2014-04-17  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	* config/rs6000/vsx.md (vsx_xxmrghw_<mode>): Adjust for
+	little-endian.
+	(vsx_xxmrglw_<mode>): Likewise.
+
+[gcc/testsuite]
+
+2014-04-17  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	* gcc.dg/vmx/merge-vsx.c: Add V4SI and V4SF tests.
+	* gcc.dg/vmx/merge-vsx-be-order.c: Likewise.
+
+
+
+git-svn-id: svn+ssh://gcc.gnu.org/svn/gcc/branches/gcc-4_8-branch@209515 138bc75d-0d04-0410-961f-82ee72b054a4
+---
+ gcc/config/rs6000/vsx.md                      |   14 +++++++++-
+ gcc/testsuite/gcc.dg/vmx/merge-vsx-be-order.c |   33 +++++++++++++++++++++++++
+ gcc/testsuite/gcc.dg/vmx/merge-vsx.c          |   27 ++++++++++++++++++++
+ 5 files changed, 83 insertions(+), 2 deletions(-)
+
+diff --git a/gcc/config/rs6000/vsx.md b/gcc/config/rs6000/vsx.md
+index f6b2d4d..3694e28 100644
+--- a/gcc/config/rs6000/vsx.md
++++ b/gcc/config/rs6000/vsx.md
+@@ -1814,7 +1814,12 @@
+ 	  (parallel [(const_int 0) (const_int 4)
+ 		     (const_int 1) (const_int 5)])))]
+   "VECTOR_MEM_VSX_P (<MODE>mode)"
+-  "xxmrghw %x0,%x1,%x2"
++{
++  if (BYTES_BIG_ENDIAN)
++    return "xxmrghw %x0,%x1,%x2";
++  else
++    return "xxmrglw %x0,%x2,%x1";
++}
+   [(set_attr "type" "vecperm")])
+ 
+ (define_insn "vsx_xxmrglw_<mode>"
+@@ -1826,7 +1831,12 @@
+ 	  (parallel [(const_int 2) (const_int 6)
+ 		     (const_int 3) (const_int 7)])))]
+   "VECTOR_MEM_VSX_P (<MODE>mode)"
+-  "xxmrglw %x0,%x1,%x2"
++{
++  if (BYTES_BIG_ENDIAN)
++    return "xxmrglw %x0,%x1,%x2";
++  else
++    return "xxmrghw %x0,%x2,%x1";
++}
+   [(set_attr "type" "vecperm")])
+ 
+ ;; Shift left double by word immediate
+diff --git a/gcc/testsuite/gcc.dg/vmx/merge-vsx-be-order.c b/gcc/testsuite/gcc.dg/vmx/merge-vsx-be-order.c
+index 440ac9a..56e0b0e 100644
+--- a/gcc/testsuite/gcc.dg/vmx/merge-vsx-be-order.c
++++ b/gcc/testsuite/gcc.dg/vmx/merge-vsx-be-order.c
+@@ -21,10 +21,19 @@ static void test()
+   vector long long vlb = {0,1};
+   vector double vda = {-2.0,-1.0};
+   vector double vdb = {0.0,1.0};
++  vector unsigned int vuia = {0,1,2,3};
++  vector unsigned int vuib = {4,5,6,7};
++  vector signed int vsia = {-4,-3,-2,-1};
++  vector signed int vsib = {0,1,2,3};
++  vector float vfa = {-4.0,-3.0,-2.0,-1.0};
++  vector float vfb = {0.0,1.0,2.0,3.0};
+ 
+   /* Result vectors.  */
+   vector long long vlh, vll;
+   vector double vdh, vdl;
++  vector unsigned int vuih, vuil;
++  vector signed int vsih, vsil;
++  vector float vfh, vfl;
+ 
+   /* Expected result vectors.  */
+ #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+@@ -32,20 +41,44 @@ static void test()
+   vector long long vlrl = {0,-2};
+   vector double vdrh = {1.0,-1.0};
+   vector double vdrl = {0.0,-2.0};
++  vector unsigned int vuirh = {6,2,7,3};
++  vector unsigned int vuirl = {4,0,5,1};
++  vector signed int vsirh = {2,-2,3,-1};
++  vector signed int vsirl = {0,-4,1,-3};
++  vector float vfrh = {2.0,-2.0,3.0,-1.0};
++  vector float vfrl = {0.0,-4.0,1.0,-3.0};
+ #else
+   vector long long vlrh = {-2,0};
+   vector long long vlrl = {-1,1};
+   vector double vdrh = {-2.0,0.0};
+   vector double vdrl = {-1.0,1.0};
++  vector unsigned int vuirh = {0,4,1,5};
++  vector unsigned int vuirl = {2,6,3,7};
++  vector signed int vsirh = {-4,0,-3,1};
++  vector signed int vsirl = {-2,2,-1,3};
++  vector float vfrh = {-4.0,0.0,-3.0,1.0};
++  vector float vfrl = {-2.0,2.0,-1.0,3.0};
+ #endif
+ 
+   vlh = vec_mergeh (vla, vlb);
+   vll = vec_mergel (vla, vlb);
+   vdh = vec_mergeh (vda, vdb);
+   vdl = vec_mergel (vda, vdb);
++  vuih = vec_mergeh (vuia, vuib);
++  vuil = vec_mergel (vuia, vuib);
++  vsih = vec_mergeh (vsia, vsib);
++  vsil = vec_mergel (vsia, vsib);
++  vfh  = vec_mergeh (vfa,  vfb );
++  vfl  = vec_mergel (vfa,  vfb );
+ 
+   check (vec_long_long_eq (vlh, vlrh), "vlh");
+   check (vec_long_long_eq (vll, vlrl), "vll");
+   check (vec_double_eq (vdh, vdrh), "vdh" );
+   check (vec_double_eq (vdl, vdrl), "vdl" );
++  check (vec_all_eq (vuih, vuirh), "vuih");
++  check (vec_all_eq (vuil, vuirl), "vuil");
++  check (vec_all_eq (vsih, vsirh), "vsih");
++  check (vec_all_eq (vsil, vsirl), "vsil");
++  check (vec_all_eq (vfh,  vfrh),  "vfh");
++  check (vec_all_eq (vfl,  vfrl),  "vfl");
+ }
+diff --git a/gcc/testsuite/gcc.dg/vmx/merge-vsx.c b/gcc/testsuite/gcc.dg/vmx/merge-vsx.c
+index 851f35b..40693e9 100644
+--- a/gcc/testsuite/gcc.dg/vmx/merge-vsx.c
++++ b/gcc/testsuite/gcc.dg/vmx/merge-vsx.c
+@@ -21,24 +21,51 @@ static void test()
+   vector long long vlb = {0,1};
+   vector double vda = {-2.0,-1.0};
+   vector double vdb = {0.0,1.0};
++  vector unsigned int vuia = {0,1,2,3};
++  vector unsigned int vuib = {4,5,6,7};
++  vector signed int vsia = {-4,-3,-2,-1};
++  vector signed int vsib = {0,1,2,3};
++  vector float vfa = {-4.0,-3.0,-2.0,-1.0};
++  vector float vfb = {0.0,1.0,2.0,3.0};
+ 
+   /* Result vectors.  */
+   vector long long vlh, vll;
+   vector double vdh, vdl;
++  vector unsigned int vuih, vuil;
++  vector signed int vsih, vsil;
++  vector float vfh, vfl;
+ 
+   /* Expected result vectors.  */
+   vector long long vlrh = {-2,0};
+   vector long long vlrl = {-1,1};
+   vector double vdrh = {-2.0,0.0};
+   vector double vdrl = {-1.0,1.0};
++  vector unsigned int vuirh = {0,4,1,5};
++  vector unsigned int vuirl = {2,6,3,7};
++  vector signed int vsirh = {-4,0,-3,1};
++  vector signed int vsirl = {-2,2,-1,3};
++  vector float vfrh = {-4.0,0.0,-3.0,1.0};
++  vector float vfrl = {-2.0,2.0,-1.0,3.0};
+ 
+   vlh = vec_mergeh (vla, vlb);
+   vll = vec_mergel (vla, vlb);
+   vdh = vec_mergeh (vda, vdb);
+   vdl = vec_mergel (vda, vdb);
++  vuih = vec_mergeh (vuia, vuib);
++  vuil = vec_mergel (vuia, vuib);
++  vsih = vec_mergeh (vsia, vsib);
++  vsil = vec_mergel (vsia, vsib);
++  vfh  = vec_mergeh (vfa,  vfb );
++  vfl  = vec_mergel (vfa,  vfb );
+ 
+   check (vec_long_long_eq (vlh, vlrh), "vlh");
+   check (vec_long_long_eq (vll, vlrl), "vll");
+   check (vec_double_eq (vdh, vdrh), "vdh" );
+   check (vec_double_eq (vdl, vdrl), "vdl" );
++  check (vec_all_eq (vuih, vuirh), "vuih");
++  check (vec_all_eq (vuil, vuirl), "vuil");
++  check (vec_all_eq (vsih, vsirh), "vsih");
++  check (vec_all_eq (vsil, vsirl), "vsil");
++  check (vec_all_eq (vfh,  vfrh),  "vfh");
++  check (vec_all_eq (vfl,  vfrl),  "vfl");
+ }
+-- 
+1.7.1
+

@@ -1,0 +1,145 @@
+diff -ur base/cmd/cgo/gcc.go new/cmd/cgo/gcc.go
+--- base/cmd/cgo/gcc.go	2015-02-17 09:57:17.944236001 -0600
++++ new/cmd/cgo/gcc.go	2015-02-17 09:54:45.464236001 -0600
+@@ -706,9 +706,11 @@
+ }
+ 
+ // gccBaseCmd returns the start of the compiler command line.
+-// It uses $CC if set, or else $GCC, or else the compiler recorded
+-// during the initial build as defaultCC.
+-// defaultCC is defined in zdefaultcc.go, written by cmd/dist.
++// It uses $CC if set, or else $GCC, or the standard gcc from
++// the path
++
++const defaultCC = "gcc"
++
+ func (p *Package) gccBaseCmd() []string {
+ 	// Use $CC if set, since that's what the build uses.
+ 	if ret := strings.Fields(os.Getenv("CC")); len(ret) > 0 {
+diff -ur base/cmd/cgo/main.go new/cmd/cgo/main.go
+--- base/cmd/cgo/main.go	2015-02-17 09:57:17.944236001 -0600
++++ new/cmd/cgo/main.go	2015-02-17 09:54:45.464236001 -0600
+@@ -133,12 +133,16 @@
+ 	"386":   4,
+ 	"amd64": 8,
+ 	"arm":   4,
++	"ppc64": 8,
++	"ppc64le": 8,
+ }
+ 
+ var intSizeMap = map[string]int64{
+ 	"386":   4,
+ 	"amd64": 8,
+ 	"arm":   4,
++	"ppc64": 8,
++	"ppc64le": 8,
+ }
+ 
+ var cPrefix string
+diff -ur base/cmd/go/build.go new/cmd/go/build.go
+--- base/cmd/go/build.go	2015-02-17 09:57:11.664236001 -0600
++++ new/cmd/go/build.go	2015-02-17 09:54:45.464236001 -0600
+@@ -124,6 +124,7 @@
+ var buildGccgoflags []string // -gccgoflags flag
+ var buildRace bool           // -race flag
+ 
++var reqPkgSrc bool	     // require src
+ var buildContext = build.Default
+ var buildToolchain toolchain = noToolchain{}
+ 
+@@ -175,6 +176,12 @@
+ 	cmd.Flag.Var((*stringsFlag)(&buildContext.BuildTags), "tags", "")
+ 	cmd.Flag.Var(buildCompiler{}, "compiler", "")
+ 	cmd.Flag.BoolVar(&buildRace, "race", false, "")
++	switch build.Default.Compiler {
++        case "gc":
++                reqPkgSrc = true
++        case "gccgo":
++                reqPkgSrc = false
++        }
+ }
+ 
+ func addBuildFlagsNX(cmd *Command) {
+@@ -419,6 +426,9 @@
+ 	gorootSrc    = filepath.Join(goroot, "src")
+ )
+ 
++const defaultCC = "gcc"
++const defaultCXX = "g++"
++
+ func (b *builder) init() {
+ 	var err error
+ 	b.print = func(a ...interface{}) (int, error) {
+@@ -541,7 +551,9 @@
+ 	// using cgo, to make sure we do not overwrite the binary while
+ 	// a package is using it.  If this is a cross-build, then the cgo we
+ 	// are writing is not the cgo we need to use.
+-	if goos == runtime.GOOS && goarch == runtime.GOARCH && !buildRace {
++	// With gccgo, the pkg source for the stdlib is not needed, so don't
++	// require it here
++	if goos == runtime.GOOS && goarch == runtime.GOARCH && !buildRace && reqPkgSrc {
+ 		if len(p.CgoFiles) > 0 || p.Standard && p.ImportPath == "runtime/cgo" {
+ 			var stk importStack
+ 			p1 := loadPackage("cmd/cgo", &stk)
+Only in new/cmd/go: format
+diff -ur base/cmd/go/pkg.go new/cmd/go/pkg.go
+--- base/cmd/go/pkg.go	2015-02-17 09:57:11.664236001 -0600
++++ new/cmd/go/pkg.go	2015-02-17 09:54:45.464236001 -0600
+@@ -474,6 +474,9 @@
+ 	imports := make([]*Package, 0, len(p.Imports))
+ 	deps := make(map[string]bool)
+ 	for i, path := range importPaths {
++		if !reqPkgSrc {
++			continue
++		}
+ 		if path == "C" {
+ 			continue
+ 		}
+diff -ur base/cmd/go/test.go new/cmd/go/test.go
+--- base/cmd/go/test.go	2015-02-17 09:57:11.664236001 -0600
++++ new/cmd/go/test.go	2015-02-17 09:54:45.464236001 -0600
+@@ -367,9 +367,11 @@
+ 		delete(deps, "unsafe")
+ 
+ 		all := []string{}
+-		for path := range deps {
+-			if !build.IsLocalImport(path) {
+-				all = append(all, path)
++		if !reqPkgSrc {
++			for path := range deps {
++				if !build.IsLocalImport(path) {
++					all = append(all, path)
++				}
+ 			}
+ 		}
+ 		sort.Strings(all)
+@@ -532,6 +534,9 @@
+ 	var stk importStack
+ 	stk.push(p.ImportPath + "_test")
+ 	for _, path := range p.TestImports {
++		if !reqPkgSrc {
++			continue
++		}
+ 		p1 := loadImport(path, p.Dir, &stk, p.build.TestImportPos[path])
+ 		if p1.Error != nil {
+ 			return nil, nil, nil, p1.Error
+@@ -542,6 +547,9 @@
+ 		if path == p.ImportPath {
+ 			continue
+ 		}
++		if !reqPkgSrc {
++			continue
++		}
+ 		p1 := loadImport(path, p.Dir, &stk, p.build.XTestImportPos[path])
+ 		if p1.Error != nil {
+ 			return nil, nil, nil, p1.Error
+@@ -665,6 +673,9 @@
+ 	stk.push("testmain")
+ 	for dep := range testMainDeps {
+ 		if ptest.ImportPath != dep {
++			if !reqPkgSrc {
++				continue
++			}
+ 			p1 := loadImport("testing", "", &stk, nil)
+ 			if p1.Error != nil {
+ 				return nil, nil, nil, p1.Error
