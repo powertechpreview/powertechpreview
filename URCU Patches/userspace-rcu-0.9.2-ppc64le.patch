@@ -1,0 +1,15 @@
+++++++ userspace-rcu-ppc64le.patch ++++++
+Index: userspace-rcu-0.8.1/configure
+===================================================================
+--- userspace-rcu-0.8.1.orig/configure
++++ userspace-rcu-0.8.1/configure
+@@ -7148,6 +7148,9 @@ s390*-*linux*|s390*-*tpf*|sparc*-*linux*
+	  ppc*-*linux*|powerpc*-*linux*)
+	    LD="${LD-ld} -m elf64ppc"
+	    ;;
++         ppc*le-*linux*|powerpc*le-*linux*)
++           LD="${LD-ld} -m elf64ppc"
++           ;;
+	  s390*-*linux*|s390*-*tpf*)
+	    LD="${LD-ld} -m elf64_s390"
+	    ;;

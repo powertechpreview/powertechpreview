@@ -1,0 +1,60 @@
+From 41f651763f3038ac0244fc76f4b4f2af938b0ffa Mon Sep 17 00:00:00 2001
+From: "Gabriel F. T. Gomes" <gftg@linux.vnet.ibm.com>
+Date: Fri, 26 Feb 2016 07:52:52 -0300
+Subject: [PATCH] Fix automatic inclusion of include path
+
+The --with-advance-toolchain switch automatically adds the advance-toolchain
+include directories to the top of the search path used by the C pre-processor.
+Although such directories should indeed be included, they should not be
+included before gcc's include directories.
+
+Rationale:
+
+If any header in gcc's include directories uses a include_next directive, the
+headers in the advance-toolchain should be searched for said 'next inclusion'.
+However, since the advance-toolchain directories have already been searched
+(top of the search path list), they will not be searched again, thus the
+include_next directive will find the headers from the system.
+
+This patch fixes the --with-advance-toolchain switch so that it automatically
+sets the --with-local-headers option, in order to add the advance-toolchain
+include directories to the correct place in the C pre-processor search path.
+---
+ gcc/config.gcc | 17 +++++++----------
+ 1 file changed, 7 insertions(+), 10 deletions(-)
+
+diff --git a/gcc/config.gcc b/gcc/config.gcc
+index 13a567f..217e573 100644
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -4097,20 +4097,17 @@ case "${target}" in
+ 			-d "/opt/$with_advance_toolchain/bin/." -a \
+ 			-d "/opt/$with_advance_toolchain/include/."; then
+ 
++			if test "x$with_local_prefix" != x; then
++				echo "Do not use the options --with-advance-toolchain and --with-local-prefix together"
++				exit 1
++			else
++				local_prefix="/opt/$with_advance_toolchain"
++			fi
++
+ 			tm_file="$tm_file ./advance-toolchain.h"
+ 			(at="/opt/$with_advance_toolchain"
+ 			 echo "/* Use Advance Toolchain $at */"
+ 			 echo
+-			 echo "#ifndef USE_AT_INCLUDE_FILES"
+-			 echo "#define USE_AT_INCLUDE_FILES 1"
+-			 echo "#endif"
+-			 echo
+-			 echo "#if USE_AT_INCLUDE_FILES"
+-			 echo "#undef  INCLUDE_EXTRA_SPEC"
+-			 echo "#define INCLUDE_EXTRA_SPEC" \
+-			      "\"-isystem $at/include\""
+-			 echo "#endif"
+-			 echo
+ 			 echo "#undef  LINK_OS_EXTRA_SPEC32"
+ 			 echo "#define LINK_OS_EXTRA_SPEC32" \
+ 			      "\"%(link_os_new_dtags)" \
+-- 
+2.4.3
+

@@ -1,0 +1,37 @@
+diff --git a/libgfortran/Makefile.am b/libgfortran/Makefile.am
+index 39d3e11..7b75a5a 100644
+--- a/libgfortran/Makefile.am
++++ b/libgfortran/Makefile.am
+@@ -75,6 +75,10 @@ AM_CFLAGS += $(SECTION_FLAGS)
+ AM_CFLAGS += $(IEEE_FLAGS)
+ AM_FCFLAGS += $(IEEE_FLAGS)
+ 
++# Make link-time optimization.
++AM_CFLAGS   += -flto
++AM_CPPFLAGS += -flto
++
+ if LIBGFOR_MINIMAL
+ AM_CFLAGS += -DLIBGFOR_MINIMAL
+ endif
+diff --git a/libgfortran/Makefile.in b/libgfortran/Makefile.in
+index 7ed080c..fe35bd0 100644
+--- a/libgfortran/Makefile.in
++++ b/libgfortran/Makefile.in
+@@ -443,7 +443,7 @@ AMTAR = @AMTAR@
+ 
+ # Some targets require additional compiler options for IEEE compatibility.
+ AM_CFLAGS = @AM_CFLAGS@ -fcx-fortran-rules $(SECTION_FLAGS) \
+-	$(IEEE_FLAGS) $(am__append_1)
++	$(IEEE_FLAGS) -flto $(am__append_1)
+ AM_FCFLAGS = @AM_FCFLAGS@ $(IEEE_FLAGS)
+ AR = @AR@
+ AS = @AS@
+@@ -618,7 +618,7 @@ AM_CPPFLAGS = -iquote$(srcdir)/io -I$(srcdir)/$(MULTISRCTOP)../gcc \
+ 	      -I$(MULTIBUILDTOP)../libgcc \
+ 	      -I$(srcdir)/$(MULTISRCTOP)../libbacktrace \
+ 	      -I$(MULTIBUILDTOP)../libbacktrace \
+-	      -I../libbacktrace
++	      -I../libbacktrace -flto
+ 
+ gfor_io_src = io/size_from_kind.c $(am__append_2)
+ gfor_io_headers = \

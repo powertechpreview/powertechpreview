@@ -1,0 +1,26 @@
+diff -ruNp a/Modules/faulthandler.c b/Modules/faulthandler.c
+--- a/Modules/faulthandler.c	2015-12-06 23:39:10.000000000 -0200
++++ b/Modules/faulthandler.c	2016-06-28 11:23:22.855577015 -0300
+@@ -952,6 +952,12 @@ faulthandler_fatal_error_py(PyObject *se
+     * a loop. */
+ #  pragma intel optimization_level 0
+ #endif
++/* GCC 5 may optimize this as a tail call, which will
++   result in an infinite loop, not a stack overflow */
++#ifdef __GNUC__
++#pragma GCC push_options
++#pragma GCC optimize ("O0")
++#endif
+ static
+ Py_uintptr_t
+ stack_overflow(Py_uintptr_t min_sp, Py_uintptr_t max_sp, size_t *depth)
+@@ -966,6 +972,9 @@ stack_overflow(Py_uintptr_t min_sp, Py_u
+     buffer[4095] = 0;
+     return stack_overflow(min_sp, max_sp, depth);
+ }
++#ifdef __GNUC__
++#pragma GCC pop_options
++#endif
+ 
+ static PyObject *
+ faulthandler_stack_overflow(PyObject *self)

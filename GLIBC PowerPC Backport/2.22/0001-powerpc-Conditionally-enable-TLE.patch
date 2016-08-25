@@ -1,0 +1,54 @@
+From 405a4945089624bdfadb67993820cd5b998db7f0 Mon Sep 17 00:00:00 2001
+From: "Paul E. Murphy" <murphyp@linux.vnet.ibm.com>
+Date: Thu, 11 Feb 2016 12:39:41 -0500
+Subject: [PATCH] powerpc: Conditionally enable TLE
+
+Only enable TLE if it:
+  * Supported by hardware
+  * Not a setuid program
+  * Environment contains GLIBC_ELISION_ENABLE=yes
+
+2016-02-11  Paul E. Murphy  <murphyp@linux.vnet.ibm.com>
+
+	* sysdeps/unix/sysv/linux/powerpc/elision-conf.c
+	(elision_init): Further restrict enablement based
+	on whether GLIBC_ELISION_ENABLE=yes is in the env.
+---
+ sysdeps/unix/sysv/linux/powerpc/elision-conf.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/sysdeps/unix/sysv/linux/powerpc/elision-conf.c b/sysdeps/unix/sysv/linux/powerpc/elision-conf.c
+index 5341222..010dde0 100644
+--- a/sysdeps/unix/sysv/linux/powerpc/elision-conf.c
++++ b/sysdeps/unix/sysv/linux/powerpc/elision-conf.c
+@@ -21,6 +21,7 @@
+ #include <elision-conf.h>
+ #include <unistd.h>
+ #include <dl-procinfo.h>
++#include <string.h>
+ 
+ /* Reasonable initial tuning values, may be revised in the future.
+    This is a conservative initial value.  */
+@@ -61,7 +62,18 @@ elision_init (int argc __attribute__ ((unused)),
+ {
+ #ifdef ENABLE_LOCK_ELISION
+   int elision_available = (GLRO (dl_hwcap2) & PPC_FEATURE2_HAS_HTM) ? 1 : 0;
+-  __pthread_force_elision = __libc_enable_secure ? 0 : elision_available;
++
++  /* Scan the environment and conditionally enable TLE.  */
++  if (elision_available != 0 && __libc_enable_secure == 0)
++    {
++      for ( ; *environ != NULL; environ++)
++	  if (**environ == 'G' &&
++	      strcmp (*environ,"GLIBC_ELISION_ENABLE=yes") == 0)
++	    {
++	      __pthread_force_elision = elision_available;
++	      break;
++	    }
++    }
+ #endif
+   if (!__pthread_force_elision)
+     /* Disable elision on rwlocks.  */
+-- 
+1.8.3.1
+
