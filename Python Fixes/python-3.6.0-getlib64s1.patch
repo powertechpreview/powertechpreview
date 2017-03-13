@@ -183,11 +183,17 @@ diff -ruNp a/Lib/distutils/tests/test_install.py b/Lib/distutils/tests/test_inst
 diff -ruNp a/Lib/pydoc.py b/Lib/pydoc.py
 --- a/Lib/pydoc.py	2015-12-06 23:39:08.000000000 -0200
 +++ b/Lib/pydoc.py	2016-06-28 10:44:38.917378949 -0300
-@@ -383,8 +383,9 @@ class Doc:
-
+@@ -362,6 +362,7 @@ def safeimport(path, forceload=0, cache=
+     return module
+ 
+ # ---------------------------------------------------- formatter base class
++from distutils.sysconfig import get_config_libdir
+ 
+ class Doc:
+ 
+@@ -396,7 +397,7 @@ class Doc:
      docmodule = docclass = docroutine = docother = docproperty = docdata = fail
-
-+    from distutils.sysconfig import get_config_libdir
+ 
      def getdocloc(self, object,
 -                  basedir=os.path.join(sys.base_exec_prefix, "lib",
 +                  basedir=os.path.join(sys.base_exec_prefix, get_config_libdir(),
