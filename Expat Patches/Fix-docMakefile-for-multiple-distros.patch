@@ -1,0 +1,46 @@
+From: Rogerio Alves <rogealve@br.ibm.com>
+Date: Mon, 7 Aug 2017 16:02:20 -0300
+Subject: [PATCH] Fix doc/Makefile for multiple distros.
+
+Some distros install the docbook2x-man command with different names:
+
+SLES 12: docbook-to-man
+Fedora 22 or higher: db2x_dockbook2man
+Ubuntu 14 or higher: docbook2x-man
+
+This commit add a check for this 3 commands before fail.
+---
+ expat/doc/doc.mk | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/expat/doc/doc.mk b/expat/doc/doc.mk
+index 01e5c239..50f1b61d 100644
+--- a/expat/doc/doc.mk
++++ b/expat/doc/doc.mk
+@@ -1,13 +1,24 @@
+ # Copyright (C) Sebastian Pipping <sebastian@pipping.org>
+ # Licensed under MIT/X License
+ 
+-DOCBOOK_TO_MAN = docbook2x-man
++DOCBOOK_TO_MAN := $(shell command -v docbook2x-man 2> /dev/null)
+ 
+ srcdir = .
+ 
+ 
+ .PHONY: all
+-all: xmlwf.1
++all: check xmlwf.1
++
++check:
++ifndef DOCBOOK_TO_MAN
++DOCBOOK_TO_MAN := $(shell command -v db2x_docbook2man 2> /dev/null)
++ifndef DOCBOOK_TO_MAN
++DOCBOOK_TO_MAN := $(shell command -v docbook-to-man 2> /dev/null)
++ifndef DOCBOOK_TO_MAN
++$(error "docbook2x is not installed.")
++endif
++endif
++endif
+ 
+ xmlwf.1: XMLWF.1
+ 	cp $< $@
