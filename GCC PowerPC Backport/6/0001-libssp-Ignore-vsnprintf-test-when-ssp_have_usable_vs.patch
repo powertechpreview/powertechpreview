@@ -1,0 +1,62 @@
+From 17b4554d76d62f17b12f414c7ec030d5b10964a2 Mon Sep 17 00:00:00 2001
+From: Tulio Magno Quites Machado Filho <tuliom@linux.vnet.ibm.com>
+Date: Mon, 30 Oct 2017 17:37:33 -0200
+Subject: [PATCH] libssp: Ignore vsnprintf test when ssp_have_usable_vsnprintf
+ is already set
+
+The vsnprintf test needs to execute a program that may generate illegal
+instructions when -mcpu is set to a higher value than the one current
+processor can run.
+This patch avoids running the test by reusing the value of
+ssp_have_usable_vsnprintf passed to configure.
+---
+ libssp/configure    | 4 ++++
+ libssp/configure.ac | 3 ++-
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/libssp/configure b/libssp/configure
+index 44b00ba..9561b8d 100755
+--- a/libssp/configure
++++ b/libssp/configure
+@@ -4510,6 +4510,9 @@ fi
+ 
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether vsnprintf is usable" >&5
+ $as_echo_n "checking whether vsnprintf is usable... " >&6; }
++if test "${ssp_have_usable_vsnprintf+set}" = set; then :
++  $as_echo_n "(cached) " >&6
++else
+ if test "$cross_compiling" = yes; then :
+   ssp_have_usable_vsnprintf=undef
+ else
+@@ -4547,6 +4550,7 @@ fi
+ rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
+   conftest.$ac_objext conftest.beam conftest.$ac_ext
+ fi
++fi
+ 
+ if test "x$ssp_have_usable_vsnprintf" = xdefine; then
+   { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+diff --git a/libssp/configure.ac b/libssp/configure.ac
+index 93dfa8d..166c2bc 100644
+--- a/libssp/configure.ac
++++ b/libssp/configure.ac
+@@ -125,7 +125,7 @@ else
+   AC_CHECK_FUNCS(memmove mempcpy strncpy strncat)
+ fi
+ 
+-AC_MSG_CHECKING([whether vsnprintf is usable])
++AC_CACHE_CHECK([whether vsnprintf is usable],[
+ AC_RUN_IFELSE(AC_LANG_PROGRAM([
+ #include <stdarg.h>
+ #include <string.h>
+@@ -146,6 +146,7 @@ int foo (char *buf, size_t n, const char *fmt, ...)
+ [ssp_have_usable_vsnprintf=define],
+ [ssp_have_usable_vsnprintf=undef],
+ [ssp_have_usable_vsnprintf=undef])
++])
+ if test "x$ssp_have_usable_vsnprintf" = xdefine; then
+   AC_MSG_RESULT(yes)
+   AC_DEFINE([HAVE_USABLE_VSNPRINTF],[1],[vsnprintf is present and works])
+-- 
+2.9.5
+
