@@ -40,7 +40,7 @@ index 5341222..010dde0 100644
 +    {
 +      for ( ; *environ != NULL; environ++)
 +	  if (**environ == 'G' &&
-+	      strcmp (*environ,"GLIBC_ELISION_ENABLE=yes") == 0)
++	      strcmp (*environ,"GLIBC_TUNABLES=glibc.elision.enable=1") == 0)
 +	    {
 +	      __pthread_force_elision = elision_available;
 +	      break;
