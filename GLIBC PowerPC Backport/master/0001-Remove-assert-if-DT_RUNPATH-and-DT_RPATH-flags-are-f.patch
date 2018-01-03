@@ -1,0 +1,13 @@
+diff --git a/elf/get-dynamic-info.h b/elf/get-dynamic-info.h
+index d1bbd817be..e646af01f4 100644
+--- a/elf/get-dynamic-info.h
++++ b/elf/get-dynamic-info.h
+@@ -144,8 +144,6 @@ elf_get_dynamic_info (struct link_map *l, ElfW(Dyn) *temp)
+ 	  || (info[DT_FLAGS]->d_un.d_val & ~DF_BIND_NOW) == 0);
+ #endif
+ #if defined RTLD_BOOTSTRAP || defined STATIC_PIE_BOOTSTRAP
+-  assert (info[DT_RUNPATH] == NULL);
+-  assert (info[DT_RPATH] == NULL);
+ #else
+   if (info[DT_FLAGS] != NULL)
+     {
