@@ -331,7 +331,7 @@ diff -ruNp a/Lib/test/test_site.py b/Lib/test/test_site.py
 @@ -247,16 +248,18 @@ class HelperFunctionsTests(unittest.Test
              self.assertEqual(dirs[1], wanted)
          elif os.sep == '/':
-             # OS X non-framwework builds, Linux, FreeBSD, etc
+             # OS X non-framework builds, Linux, FreeBSD, etc
 +            libdir = get_config_libdir()
              self.assertEqual(len(dirs), 1)
 -            wanted = os.path.join('xoxo', 'lib',
