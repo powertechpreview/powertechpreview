@@ -1,0 +1,47 @@
+From 955595f02b487d93ccfc2e009eb444281d32c83a Mon Sep 17 00:00:00 2001
+From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
+Date: Tue, 10 Jul 2018 11:57:47 -0300
+Subject: [PATCH] Initialize kept_size in gold/object.cc
+
+It does work, but I also had to apply the following patch to complete
+the build.
+
+Thanks!
+
+---- 8< ----
+
+Fix "may be used uninitialized" warning.
+
+2018-07-10  Tulio Magno Quites Machado Filho  <tuliom@linux.ibm.com>
+
+	* object.cc (Sized_relobj_file::map_to_kept_section): Initialize
+	kept_file.
+---
+ gold/object.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/gold/object.cc b/gold/object.cc
+index 374340fa16..f7bf878d9f 100644
+--- a/gold/object.cc
++++ b/gold/object.cc
+@@ -2947,7 +2947,7 @@ Sized_relobj_file<size, big_endian>::map_to_kept_section(
+ 	      // Since we're using this mapping for relocation processing,
+ 	      // we don't want to match sections unless they have the same
+ 	      // size.
+-	      uint64_t kept_size;
++	      uint64_t kept_size = 0;
+ 	      if (kept_section->find_comdat_section(section_name, &kept_shndx,
+ 						    &kept_size))
+ 		{
+@@ -2957,7 +2957,7 @@ Sized_relobj_file<size, big_endian>::map_to_kept_section(
+ 	    }
+ 	  else
+ 	    {
+-	      uint64_t kept_size;
++	      uint64_t kept_size = 0;
+ 	      if (kept_section->find_single_comdat_section(&kept_shndx,
+ 							   &kept_size)
+ 		  && sh_size == kept_size)
+-- 
+2.14.4
+
