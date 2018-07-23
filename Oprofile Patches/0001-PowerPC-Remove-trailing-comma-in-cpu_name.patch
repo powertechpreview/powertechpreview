@@ -1,0 +1,50 @@
+From c474cd3ddfcb2fe68f38745675f4c4d9ef79dfc5 Mon Sep 17 00:00:00 2001
+From: Carl Love <cel@us.ibm.com>
+Date: Tue, 27 Mar 2018 13:07:37 -0700
+Subject: [PATCH] PowerPC: Remove trailing comma in cpu_name.
+
+Will:
+
+I redid the patch as follows per your suggestions.  I was able to get
+on to a system where the issue occurs and test the patch.  The patch
+seems to work fine.
+
+                   Carl Love
+
+-----------------------------------------------------------------------
+
+The processor type for some Power 9 systems had a comma after POWER9.
+Remove the comma before returning the string for the CPU.
+---
+ libop/op_cpu_type.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/libop/op_cpu_type.c b/libop/op_cpu_type.c
+index feea9487..d2babd18 100644
+--- a/libop/op_cpu_type.c
++++ b/libop/op_cpu_type.c
+@@ -154,17 +154,17 @@ static char * _get_cpuinfo_cpu_type_line(char * buf, int len, const char * prefi
+ 			/* if token param 0 then read the whole line else
+ 			 * first token only. */
+ 			if (token == 0) {
+-				/* Trim trailing whitespace */
++				/* Trim trailing whitespace and commas */
+ 				end = buf + strlen(buf) - 1;
+-				while (isspace(*end))
++				while (isspace(*end) || *end == ',')
+ 					--end;
+ 				*(++end) = '\0';
+ 				break;
+ 			} else {
+ 				/* Scan ahead to the end of the token */
+-				while (*buf && !isspace(*buf))
++				while (*buf && !(isspace(*buf) || *buf == ','))
+ 					++buf;
+-				/* Trim trailing whitespace */
++				/* Trim trailing whitespace and commas */
+ 				*buf = '\0';
+ 				break;
+ 			}
+-- 
+2.14.4
+

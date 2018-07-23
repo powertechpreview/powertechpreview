@@ -1,0 +1,43 @@
+From e044a7def7f6aa61d3bb2a75a1ef597a4724441b Mon Sep 17 00:00:00 2001
+From: William Cohen <wcohen@redhat.com>
+Date: Mon, 18 Jun 2018 16:47:00 -0400
+Subject: [PATCH] Initialize the trans structure fields to values unused by
+ perf samples
+
+On newer 4.14 kernel operf was crashing because the kernel commit
+1d953111b648e ("perf/core: Don't report zero PIDs for exiting tasks")
+made perf samples have TID/PID of -1 for exiting processes.  OProfile
+used this same value internally to indicate the that field had not
+been initialized.  As a result operf would incorrectly attempt to run
+some bookkeeping code due to an invalid match. The initialization of
+the trans tgid field is now changed to a value that is unsed by the
+perf samples to ensure that these invalid matches do not occur.
+
+Signed-off-by: William Cohen <wcohen@redhat.com>
+---
+ libperf_events/operf_utils.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/libperf_events/operf_utils.cpp b/libperf_events/operf_utils.cpp
+index 58c50a6f..057692d7 100644
+--- a/libperf_events/operf_utils.cpp
++++ b/libperf_events/operf_utils.cpp
+@@ -73,7 +73,14 @@ static inline void update_trans_last(struct operf_transient * trans)
+ 
+ static inline void clear_trans(struct operf_transient * trans)
+ {
+-	trans->tgid = ~0U;
++	/* ~0U (-1) could be used by the kernel perf samples
++	 * for the TID/PID of exiting processes. To avoid
++	 * confusing the oprofile logic use ~1U as the
++	 * initialization value for tgid field to avoid
++	 * possibly matching the TID/PID values for exiting
++	 * processes.
++	 */
++	trans->tgid = ~1U;
+ 	trans->cur_procinfo = NULL;
+ }
+ 
+-- 
+2.14.4
+
