@@ -1,0 +1,199 @@
+commit 9281f34239a2b034a26330f82f8900682c026604
+Author: Will Schmidt <will_schmidt@vnet.ibm.com>
+Date:   Tue Jul 10 14:03:36 2018 -0500
+
+    itrace updates to match upstream valgrind.
+    
+    Changes were made to upstream valgrind affecting how it
+    handles debuginfo, which affected a number of calls that
+    the out-of-tree itrace add-on likes to utilize.
+    
+    the upstream changes are described fairly well starting
+    at comment #62 in the upstream bugzilla.
+    https://bugs.kde.org/show_bug.cgi?id=79362#c62
+    
+    Itrace code that calls any of these functions will need an update.
+    get_fnname
+    find_DebugInfo
+    get_filename_linenum
+    get_fnname_if_entry
+    
+    Preliminary patch attached.   This compiles OK.
+    The valgrind tests run as they did before. (mostly successful, some
+    tests always fail, mostly due to behavior variations between x86 and power
+    in symbol naming and backtrace isms.
+    
+    [v2]updates.  One more function call updated. (previously missed due to it being within a disabled #ifdef section).
+
+diff --git a/itrace/bb.c b/itrace/bb.c
+index 4670709..96f6cdc 100644
+--- a/itrace/bb.c
++++ b/itrace/bb.c
+@@ -6,11 +6,11 @@
+ /*
+    This file is part of itrace, a Valgrind tool for instruction tracing.
+ 
+    Authors: Dave Nomura (dcnomura@us.ibm.com) and Maynard Johnson
+             (maynardj@us.ibm.com)
+-   (C) Copyright IBM Corporation 2006 - 2015
++   (C) Copyright IBM Corporation 2006 - 2018
+ 
+    This file is based on a similar file that is part of the callgrind tool,
+    written by Josef Weidendorfer:
+    Copyright (C) 2002-2006, Josef Weidendorfer (Josef.Weidendorfer@gmx.de)
+ 
+@@ -203,11 +203,12 @@ obj_node* obj_of_address(Addr addr)
+ {
+   obj_node* obj;
+   DebugInfo* di;
+   OffT offset;
+ 
+-  di = VG_(find_DebugInfo)(addr);
++  DiEpoch ep = VG_(current_DiEpoch)();
++  di = VG_(find_DebugInfo)(ep, addr);
+   obj = CLG_(get_obj_node)( di );
+ 
+   /* Update symbol offset in object if remapped */
+   offset = di ? VG_(DebugInfo_get_text_bias)(di):0;
+   if (obj->offset != offset) {
+diff --git a/itrace/fn.c b/itrace/fn.c
+index 93fbc1c..d1a3f45 100644
+--- a/itrace/fn.c
++++ b/itrace/fn.c
+@@ -6,11 +6,11 @@
+ /*
+    This file is part of itrace, a Valgrind tool for instruction tracing.
+ 
+    Authors: Dave Nomura (dcnomura@us.ibm.com) and Maynard Johnson
+             (maynardj@us.ibm.com)
+-   (C) Copyright IBM Corporation 2006 - 2015
++   (C) Copyright IBM Corporation 2006 - 2018
+ 
+    This file is based on a similar file that is part of the callgrind tool,
+    written by Josef Weidendorfer:
+    Copyright (C) 2002-2006, Josef Weidendorfer (Josef.Weidendorfer@gmx.de)
+ 
+@@ -438,19 +438,21 @@ Bool CLG_(get_debug_info)(Addr instr_addr,
+    Bool found_file_line, found_fn, result = True;
+    UInt line;
+ 
+    CLG_DEBUG(6, "  + get_debug_info(%p)\n", (void *)instr_addr);
+ 
++   const DiEpoch cur_ep = VG_(current_DiEpoch) ();
++
+    if (pSegInfo) {
+-      *pSegInfo = VG_(find_DebugInfo)(instr_addr);
++      *pSegInfo = VG_(find_DebugInfo)(cur_ep, instr_addr);
+ 
+       // for generated code in anonymous space, pSegInfo is 0
+    }
+ 
+-   found_file_line = VG_(get_filename_linenum)(instr_addr,
++   found_file_line = VG_(get_filename_linenum)(cur_ep, instr_addr,
+             filename, dirname, &line);
+-   found_fn = VG_(get_fnname)(instr_addr, fn_name );
++   found_fn = VG_(get_fnname)(cur_ep, instr_addr, fn_name );
+ 
+    if (!found_file_line && !found_fn) {
+       CLG_(stat).no_debug_BBs++;
+         *filename = "???";
+         *fn_name = "???";
+@@ -497,10 +499,12 @@ fn_node* CLG_(get_fn_node)(BB* bb)
+    DebugInfo* di;
+    UInt       line_num;
+    fn_node*   fn;
+    static HChar buf[99];
+ 
++   const DiEpoch cur_ep = VG_(current_DiEpoch) ();
++
+    /* fn from debug info is idempotent for a BB */
+    if (bb->fn) return bb->fn;
+ 
+    CLG_DEBUG(3,"+ get_fn_node(BB %p)\n", (void *)bb_addr(bb));
+ 
+@@ -526,11 +530,11 @@ fn_node* CLG_(get_fn_node)(BB* bb)
+                (bb->sect_kind == Vg_SectGOT)  ? " [GOT]"  :
+                (bb->sect_kind == Vg_SectPLT)  ? " [PLT]"  : "");
+       fnname = buf;
+    }
+    else {
+-      if (VG_(get_fnname_if_entry)(bb_addr(bb), &fnname))
++      if (VG_(get_fnname_if_entry)(cur_ep, bb_addr(bb), &fnname))
+          bb->is_entry = 1;
+    }
+ 
+    /* HACK for correct _exit:
+     * _exit is redirected to VG_(__libc_freeres_wrapper) by valgrind,
+diff --git a/itrace/it_text_out.c b/itrace/it_text_out.c
+index 3ae2a23..8fd3bbf 100644
+--- a/itrace/it_text_out.c
++++ b/itrace/it_text_out.c
+@@ -7,11 +7,11 @@
+  This file is part of itrace, a Valgrind tool for instruction tracing.
+  This files generates text-based output for instruction tracing and is
+  only used when the "--readable=yes" option is passed.
+ 
+  Author:  Maynard Johnson <maynardj@us.ibm.com>
+- (C) Copyright IBM Corporation 2012 - 2015
++ (C) Copyright IBM Corporation 2012 - 2018
+ 
+  This program is free software; you can redistribute it and/or
+  modify it under the terms of the GNU General Public License as
+  published by the Free Software Foundation; either version 2 of the
+  License, or (at your option) any later version.
+@@ -324,12 +324,12 @@ void buffer_instruction(InstrInfo* ii)
+ 
+    total_insns_traced++;
+ 
+    trcdata[0] = '\0';
+    __buffer_instruction(ii, trcdata);
+-
+-   func_entry =  VG_(get_fnname_if_entry(bb_base + ii->instr_offset,
++   const DiEpoch cur_ep = VG_(current_DiEpoch)();
++   func_entry =  VG_(get_fnname_if_entry(cur_ep, bb_base + ii->instr_offset,
+                                          &fnname_buf));
+ #if _CALL_ELF == 2
+    /*
+     * The Elf V2 for ppc64 (used when in little endian mode) employs both local
+     * and global toc pointers. When a local function call is made, gcc is smart
+@@ -342,11 +342,11 @@ void buffer_instruction(InstrInfo* ii)
+     * for the binary file (which is not feasible here).  For the purpose at hand,
+     * the function name obtained from get_fnname_if_entry is just used as a
+     * comment in the text format of the itrace output anyway.
+     */
+    if (!ii->instr_offset && !func_entry)
+-      func_entry = VG_(get_fnname_if_entry(bb_base - 8,
++      func_entry = VG_(get_fnname_if_entry(cur_ep, bb_base - 8,
+                                            &fnname_buf));
+ #endif
+ 
+    if (func_entry) {
+       VG_(snprintf)((HChar *)fname_str, VG_(strlen)(fnname_buf)+4, " ;%s", fnname_buf);
+@@ -474,12 +474,12 @@ void print_instruction(InstrInfo* ii)
+ 
+    total_insns_traced++;
+ 
+    __print_instruction(ii);
+ 
+-
+-   func_entry = VG_(get_fnname_if_entry(bb_base + ii->instr_offset,
++   const DiEpoch cur_ep = VG_(current_DiEpoch)();
++   func_entry = VG_(get_fnname_if_entry(cur_ep, bb_base + ii->instr_offset,
+                                         &fnname_buf));
+ #if _CALL_ELF == 2
+    /*
+     * The Elf V2 for ppc64 (used when in little endian mode) employs both local
+     * and global toc pointers. When a local function call is made, gcc is smart
+@@ -492,11 +492,11 @@ void print_instruction(InstrInfo* ii)
+     * for the binary file (which is not feasible here).  For the purpose at hand,
+     * the function name obtained from get_fnname_if_entry is just used as a
+     * comment in the text format of the itrace output anyway.
+     */
+    if (!ii->instr_offset && !func_entry)
+-      func_entry = VG_(get_fnname_if_entry(bb_base - 8,
++      func_entry = VG_(get_fnname_if_entry(cur_ep, bb_base - 8,
+                                            &fnname_buf));
+ #endif
+ 
+    if (func_entry)
+       VG_(printf)(" ;%s\n", fnname_buf);
