@@ -1,0 +1,16 @@
+diff -ruNp a/configure b/configure
+--- a/configure
++++ b/configure
+@@ -7636,6 +7636,12 @@ if test x"${build}" = x"${host}" ; then
+   LDFLAGS_FOR_BUILD=${LDFLAGS_FOR_BUILD-${LDFLAGS}}
+ fi
+ 
++# Workaround to build with GCC-9
++if test x${ENABLE_GOLD} = xyes; then
++  CFLAGS=$CFLAGS' -Wno-error=class-memaccess'
++  CXXFLAGS=$CXXFLAGS' -Wno-error=class-memaccess'
++fi
++
+ # On Canadian crosses, we'll be searching the right directories for
+ # the previously-installed cross compiler, so don't bother to add
+ # flags for directories within the install tree of the compiler
