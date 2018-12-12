@@ -15,10 +15,10 @@ ssp_have_usable_vsnprintf passed to configure.
  2 files changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/libssp/configure b/libssp/configure
-index 44b00ba..9561b8d 100755
+index 2adbcc3..ca3f890 100755
 --- a/libssp/configure
 +++ b/libssp/configure
-@@ -4510,6 +4510,9 @@ fi
+@@ -4830,6 +4830,9 @@ fi
  
  { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether vsnprintf is usable" >&5
  $as_echo_n "checking whether vsnprintf is usable... " >&6; }
@@ -28,7 +28,7 @@ index 44b00ba..9561b8d 100755
  if test "$cross_compiling" = yes; then :
    ssp_have_usable_vsnprintf=undef
  else
-@@ -4547,6 +4550,7 @@ fi
+@@ -4867,6 +4870,7 @@ fi
  rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
    conftest.$ac_objext conftest.beam conftest.$ac_ext
  fi
@@ -37,19 +37,19 @@ index 44b00ba..9561b8d 100755
  if test "x$ssp_have_usable_vsnprintf" = xdefine; then
    { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 diff --git a/libssp/configure.ac b/libssp/configure.ac
-index 93dfa8d..166c2bc 100644
+index 24e805a..4c6eac8 100644
 --- a/libssp/configure.ac
 +++ b/libssp/configure.ac
-@@ -125,7 +125,7 @@ else
+@@ -129,7 +129,7 @@ else
    AC_CHECK_FUNCS(memmove mempcpy strncpy strncat)
  fi
  
 -AC_MSG_CHECKING([whether vsnprintf is usable])
 +AC_CACHE_CHECK([whether vsnprintf is usable],[
- AC_RUN_IFELSE(AC_LANG_PROGRAM([
+ AC_RUN_IFELSE([AC_LANG_PROGRAM([
  #include <stdarg.h>
  #include <string.h>
-@@ -146,6 +146,7 @@ int foo (char *buf, size_t n, const char *fmt, ...)
+@@ -150,6 +150,7 @@ int foo (char *buf, size_t n, const char *fmt, ...)
  [ssp_have_usable_vsnprintf=define],
  [ssp_have_usable_vsnprintf=undef],
  [ssp_have_usable_vsnprintf=undef])
