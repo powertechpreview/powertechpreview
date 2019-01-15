@@ -1,0 +1,49 @@
+From 7329ef76225d27fffec663aee1ad1113f30c5492 Mon Sep 17 00:00:00 2001
+From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
+Date: Mon, 14 Jan 2019 17:27:49 -0200
+Subject: [PATCH] Enable LTO for libgfortran
+
+---
+ libgfortran/Makefile.am | 3 +++
+ libgfortran/Makefile.in | 4 ++--
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/libgfortran/Makefile.am b/libgfortran/Makefile.am
+index 90fdef41097..b530319c400 100644
+--- a/libgfortran/Makefile.am
++++ b/libgfortran/Makefile.am
+@@ -79,6 +79,9 @@ AM_CFLAGS += $(SECTION_FLAGS)
+ AM_CFLAGS += $(IEEE_FLAGS)
+ AM_FCFLAGS += $(IEEE_FLAGS)
+ 
++AM_CFLAGS += -flto
++AM_FCFLAGS += -flto
++
+ if LIBGFOR_MINIMAL
+ AM_CFLAGS += -DLIBGFOR_MINIMAL
+ endif
+diff --git a/libgfortran/Makefile.in b/libgfortran/Makefile.in
+index ef0f13271e3..2bde2169fa4 100644
+--- a/libgfortran/Makefile.in
++++ b/libgfortran/Makefile.in
+@@ -565,7 +565,7 @@ AMTAR = @AMTAR@
+ 
+ # Some targets require additional compiler options for IEEE compatibility.
+ AM_CFLAGS = @AM_CFLAGS@ -fcx-fortran-rules $(SECTION_FLAGS) \
+-	$(IEEE_FLAGS) $(am__append_1)
++	$(IEEE_FLAGS) -flto $(am__append_1)
+ AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
+ AM_FCFLAGS = @AM_FCFLAGS@ $(IEEE_FLAGS)
+ AR = @AR@
+@@ -746,7 +746,7 @@ AM_CPPFLAGS = -iquote$(srcdir)/io -I$(srcdir)/$(MULTISRCTOP)../gcc \
+ 	      -I$(MULTIBUILDTOP)../libgcc \
+ 	      -I$(srcdir)/$(MULTISRCTOP)../libbacktrace \
+ 	      -I$(MULTIBUILDTOP)../libbacktrace \
+-	      -I../libbacktrace
++	      -I../libbacktrace -flto
+ 
+ gfor_io_src = io/size_from_kind.c $(am__append_2)
+ gfor_io_headers = \
+-- 
+2.14.5
+
