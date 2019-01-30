@@ -1,0 +1,51 @@
+From 43410d4a98ce7b689d469e7094b1347766a2f589 Mon Sep 17 00:00:00 2001
+From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
+Date: Mon, 28 Jan 2019 18:08:27 -0200
+Subject: [PATCH] libstdc++: Prevent LD_LIBRARY_PATH from leaking to msgfmt
+
+Somewhere in the libstdc++ code, LD_LIBRARY_PATH is being set and is
+being leaked to system commands.  When one of these commands depend on
+libstdc++.so, the newly built library is used instead of the
+system-provided one.  The new library may require new symbols which are
+not available in the system, causing an error.
+
+This issue has been reproduced with msgfmt while running on Ubuntu 16.04.
+
+2019-01-28  Tulio Magno Quites Machado Filho  <tuliom@linux.ibm.com>
+
+	* po/Makefile.am: .
+	* po/Makefile.in: .
+---
+ libstdc++-v3/po/Makefile.am | 2 +-
+ libstdc++-v3/po/Makefile.in | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/libstdc++-v3/po/Makefile.am b/libstdc++-v3/po/Makefile.am
+index 91ca11db585..f244c84a308 100644
+--- a/libstdc++-v3/po/Makefile.am
++++ b/libstdc++-v3/po/Makefile.am
+@@ -38,7 +38,7 @@ MSGFMT = msgfmt
+ EXTRA_DIST = string_literals.cc POTFILES.in $(PACKAGE).pot $(LOCALE_IN)
+ 
+ .po.mo:
+-	$(MSGFMT) -o $@ $<
++	env -u LD_LIBRARY_PATH $(MSGFMT) -o $@ $<
+ 
+ all-local: all-local-$(USE_NLS)
+ all-local-no:
+diff --git a/libstdc++-v3/po/Makefile.in b/libstdc++-v3/po/Makefile.in
+index 1f0ac5bf526..8120dbe661b 100644
+--- a/libstdc++-v3/po/Makefile.in
++++ b/libstdc++-v3/po/Makefile.in
+@@ -494,7 +494,7 @@ uninstall-am:
+ 
+ 
+ .po.mo:
+-	$(MSGFMT) -o $@ $<
++	env -u LD_LIBRARY_PATH $(MSGFMT) -o $@ $<
+ 
+ all-local: all-local-$(USE_NLS)
+ all-local-no:
+-- 
+2.14.5
+
