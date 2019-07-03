@@ -6,7 +6,7 @@ diff -ruNp a/configure b/configure
  fi
  
 +# Workaround to build with GCC-9
-+if test x${ENABLE_GOLD} = xyes; then
++if test `gcc -dumpversion` -ge 9; then
 +  CFLAGS=$CFLAGS' -Wno-error=class-memaccess'
 +  CXXFLAGS=$CXXFLAGS' -Wno-error=class-memaccess'
 +fi
