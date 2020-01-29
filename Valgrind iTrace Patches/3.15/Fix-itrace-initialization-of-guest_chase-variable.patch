@@ -1,0 +1,50 @@
+From b704d368cde920741afb1cf00b65317939531738 Mon Sep 17 00:00:00 2001
+From: Will Schmidt <will_schmidt@vnet.ibm.com>
+Date: Mon, 13 Jan 2020 16:28:19 -0600
+Subject: [PATCH] Fix itrace initialization of guest_chase variable.
+
+Itrace - Rename the guest_chase variable, and turn it into a boolean.
+This matches upstream changes as seen in the following commit log:
+
+    commit 56e04256a7a317d15240677e5bd322c0a039f66b
+    Author: Julian Seward <jseward@acm.org>
+    Date:   Mon Nov 18 19:12:49 2019 +0100
+      Rationalise --vex-guest* flags in the new IRSB construction framework
+        * removes --vex-guest-chase-cond=no|yes.  This was never used in practice.
+        * rename --vex-guest-chase-thresh=<0..99> to --vex-guest-chase=no|yes.  In
+          otherwords, downgrade it from a numeric flag to a boolean one, that can
+          simply disable all chasing if required.  (Some tools, notably Callgrind,
+          force-disable block chasing, so this functionality at least needs to be
+          retained).
+
+Signed-off-by: Will Schmidt <will_schmidt@vnet.ibm.com>
+---
+ itrace/it_main.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/itrace/it_main.c b/itrace/it_main.c
+index bd25a4f..855f79e 100644
+--- a/itrace/it_main.c
++++ b/itrace/it_main.c
+@@ -8,7 +8,8 @@
+ 
+    Authors: Dave Nomura (dcnomura@us.ibm.com) and Maynard Johnson
+    (maynardj@us.ibm.com)
+-   (C) Copyright IBM Corporation 2006 - 2015
++   Updates: Will Schmidt (willschm@us.ibm.com)
++   (C) Copyright IBM Corporation 2006 - 2020
+ 
+    This file is based on a similar file that is part of the callgrind tool,
+    written by Josef Weidendorfer:
+@@ -351,7 +351,7 @@ void CLG_(post_clo_init)(void) {
+       VG_(exit)(1);
+    }
+ 	VG_(clo_vex_control).iropt_unroll_thresh = 0;
+-	VG_(clo_vex_control).guest_chase_thresh = 0;
++	VG_(clo_vex_control).guest_chase = False;
+ 
+ 	CLG_DEBUG(1, "  dump threads: %s\n", CLG_(clo).separate_threads ? "Yes":"No");
+ 
+-- 
+2.17.1
+
