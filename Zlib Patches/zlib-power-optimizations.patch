@@ -634,7 +634,7 @@ index b42c7d6..74de1ab 100644
 2.21.1
 
 
-From 3444f58d97bda151d1c45a8815e93ed0900d4faf Mon Sep 17 00:00:00 2001
+From 3bc77c89b84cf2930ceb9f9dee31cadf36ea2316 Mon Sep 17 00:00:00 2001
 From: Rogerio Alves <rcardoso@linux.ibm.com>
 Date: Tue, 10 Dec 2019 15:04:28 -0300
 Subject: [PATCH 3/6] Tests for Adler32 vector optimization for Power.
@@ -643,27 +643,12 @@ This commit add tests for adler32 vector optimization for Power (POWER8+).
 
 Author: Rogerio Alves <rcardoso@linux.ibm.com>
 ---
- .gitignore          |   3 +
  CMakeLists.txt      |  10 ++
  Makefile.in         |  35 +++--
  test/adler32_test.c | 339 ++++++++++++++++++++++++++++++++++++++++++++
- 4 files changed, 377 insertions(+), 10 deletions(-)
+ 3 files changed, 374 insertions(+), 10 deletions(-)
  create mode 100644 test/adler32_test.c
 
-diff --git a/.gitignore b/.gitignore
-index b1c7422..8a92894 100644
---- a/.gitignore
-+++ b/.gitignore
-@@ -13,6 +13,9 @@
- *.gcno
- *.gcov
- 
-+/adler32_test
-+/adler32_test64
-+/adler32_testsh
- /example
- /example64
- /examplesh
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 9e626b8..8d00f73 100644
 --- a/CMakeLists.txt
@@ -1163,7 +1148,7 @@ index 0000000..8042295
 2.21.1
 
 
-From da090b6017ae0d67b55990855ac9514f97120ee0 Mon Sep 17 00:00:00 2001
+From 596f878f78c68e2d6eda943f17e6ec999856a450 Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Tue, 29 Oct 2019 18:04:11 -0300
 Subject: [PATCH 4/6] Add vectorized longest_match for Power
@@ -1498,7 +1483,7 @@ index 425babc..529a468 100644
 2.21.1
 
 
-From 1c7c6d14f2802eb64658acd6d11fa259b9c99af6 Mon Sep 17 00:00:00 2001
+From abd0589c76ac1db52cd0e09468d3ce591db31082 Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Wed, 27 Nov 2019 10:18:10 -0300
 Subject: [PATCH 5/6] Add optimized slide_hash for Power
@@ -1724,7 +1709,7 @@ index 529a468..650c111 100644
 2.21.1
 
 
-From db3d5681855641bc4a945287883e058e2412d81c Mon Sep 17 00:00:00 2001
+From 9addeaad840cc85afc786539c66d9b5ac77a7ee7 Mon Sep 17 00:00:00 2001
 From: Daniel Black <daniel@linux.vnet.ibm.com>
 Date: Wed, 10 Jan 2018 10:50:39 +1100
 Subject: [PATCH 6/6] Add Power8+ optimized crc32
@@ -1736,7 +1721,6 @@ This is the C implementation created by Rogerio Alves <rogealve@br.ibm.com>
 
 It makes use of vector instructions to speed up CRC32 algorithm.
 ---
- .gitignore                       |    3 +
  CMakeLists.txt                   |    5 +
  Makefile.in                      |   44 +-
  configure                        |    6 +-
@@ -1748,27 +1732,13 @@ It makes use of vector instructions to speed up CRC32 algorithm.
  contrib/power/power.h            |    4 +
  crc32.c                          |   15 +
  test/crc32_test.c                |  205 +++++
- 12 files changed, 2253 insertions(+), 14 deletions(-)
+ 11 files changed, 2250 insertions(+), 14 deletions(-)
  create mode 100644 contrib/power/clang_workaround.h
  create mode 100644 contrib/power/crc32_constants.h
  create mode 100644 contrib/power/crc32_z_power8.c
  create mode 100644 contrib/power/crc32_z_resolver.c
  create mode 100644 test/crc32_test.c
 
-diff --git a/.gitignore b/.gitignore
-index 8a92894..123807c 100644
---- a/.gitignore
-+++ b/.gitignore
-@@ -16,6 +16,9 @@
- /adler32_test
- /adler32_test64
- /adler32_testsh
-+/crc32_test
-+/crc32_test64
-+/crc32_testsh
- /example
- /example64
- /examplesh
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 6b1521a..edfbd3f 100644
 --- a/CMakeLists.txt
