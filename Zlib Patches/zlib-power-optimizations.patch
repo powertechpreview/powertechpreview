@@ -1,0 +1,4244 @@
+From 9992c9b3f39d9d83ed0e11252ef0652f4bb9632c Mon Sep 17 00:00:00 2001
+From: Rogerio Alves <rcardoso@linux.ibm.com>
+Date: Wed, 20 Nov 2019 10:35:40 -0300
+Subject: [PATCH 1/6] Preparation for Power optimizations
+
+Optimized functions for Power will make use of GNU indirect functions,
+an extension to support different implementations of the same function,
+which can be selected during runtime. This will be used to provide
+optimized functions for different processor versions.
+
+Since this is a GNU extension, we placed the definition of the Z_IFUNC
+macro under `contrib/gcc`. This can be reused by other archs as well.
+
+Author: Matheus Castanho <msc@linux.ibm.com>
+Author: Rogerio Alves <rcardoso@linux.ibm.com>
+---
+ CMakeLists.txt         | 67 ++++++++++++++++++++++++++++++++++++++++++
+ configure              | 66 +++++++++++++++++++++++++++++++++++++++++
+ contrib/README.contrib |  8 +++++
+ contrib/gcc/zifunc.h   | 60 +++++++++++++++++++++++++++++++++++++
+ contrib/power/power.h  |  4 +++
+ 5 files changed, 205 insertions(+)
+ create mode 100644 contrib/gcc/zifunc.h
+ create mode 100644 contrib/power/power.h
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0fe939d..e762023 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -7,6 +7,7 @@ set(VERSION "1.2.11")
+ 
+ option(ASM686 "Enable building i686 assembly implementation")
+ option(AMD64 "Enable building amd64 assembly implementation")
++option(POWER "Enable building power implementation")
+ 
+ set(INSTALL_BIN_DIR "${CMAKE_INSTALL_PREFIX}/bin" CACHE PATH "Installation directory for executables")
+ set(INSTALL_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Installation directory for libraries")
+@@ -140,6 +141,72 @@ if(CMAKE_COMPILER_IS_GNUCC)
+ 		add_definitions(-DASMV)
+ 		set_source_files_properties(${ZLIB_ASMS} PROPERTIES LANGUAGE C COMPILE_FLAGS -DNO_UNDERLINE)
+ 	endif()
++
++    # test to see if we can use a GNU indirect function to detect and load optimized code at runtime
++    CHECK_C_SOURCE_COMPILES("
++    static int test_ifunc_native(void)
++    {
++       return 1;
++    }
++    static int (*(check_ifunc_native(void)))(void)
++    {
++       return test_ifunc_native;
++    }
++    int test_ifunc(void) __attribute__ ((ifunc (\"check_ifunc_native\")));
++    int main(void)
++    {
++       return 0;
++    }
++    " HAS_C_ATTR_IFUNC)
++
++    if(HAS_C_ATTR_IFUNC)
++        add_definitions(-DHAVE_IFUNC)
++        set(ZLIB_PRIVATE_HDRS ${ZLIB_PRIVATE_HDRS} contrib/gcc/zifunc.h)
++    endif()
++
++    if(POWER)
++        # Test to see if we can use the optimizations for Power
++        CHECK_C_SOURCE_COMPILES("
++        #ifndef _ARCH_PPC
++            #error \"Target is not Power\"
++        #endif
++        #ifndef __BUILTIN_CPU_SUPPORTS__
++            #error \"Target doesn't support __builtin_cpu_supports()\"
++        #endif
++        int main() { return 0; }
++        " HAS_POWER_SUPPORT)
++
++        if(HAS_POWER_SUPPORT AND HAS_C_ATTR_IFUNC)
++            add_definitions(-DZ_POWER_OPT)
++
++            set(CMAKE_REQUIRED_FLAGS -mcpu=power8)
++            CHECK_C_SOURCE_COMPILES("int main(void){return 0;}" POWER8)
++
++            if(POWER8)
++                add_definitions(-DZ_POWER8)
++                set(ZLIB_POWER8 )
++
++                set_source_files_properties(
++                    ${ZLIB_POWER8}
++                    PROPERTIES COMPILE_FLAGS -mcpu=power8)
++            endif()
++
++            set(CMAKE_REQUIRED_FLAGS -mcpu=power9)
++            CHECK_C_SOURCE_COMPILES("int main(void){return 0;}" POWER9)
++
++            if(POWER9)
++                add_definitions(-DZ_POWER9)
++                set(ZLIB_POWER9 )
++
++                set_source_files_properties(
++                    ${ZLIB_POWER9}
++                    PROPERTIES COMPILE_FLAGS -mcpu=power9)
++            endif()
++
++            set(ZLIB_PRIVATE_HDRS ${ZLIB_PRIVATE_HDRS} contrib/power/power.h)
++            set(ZLIB_SRCS ${ZLIB_SRCS} ${ZLIB_POWER8} ${ZLIB_POWER9})
++        endif()
++    endif()
+ endif()
+ 
+ if(MSVC)
+diff --git a/configure b/configure
+index e974d1f..8ab58a7 100755
+--- a/configure
++++ b/configure
+@@ -826,6 +826,72 @@ EOF
+   fi
+ fi
+ 
++# test to see if we can use a gnu indirection function to detect and load optimized code at runtime
++echo >> configure.log
++cat > $test.c <<EOF
++static int test_ifunc_native(void)
++{
++  return 1;
++}
++
++static int (*(check_ifunc_native(void)))(void)
++{
++  return test_ifunc_native;
++}
++
++int test_ifunc(void) __attribute__ ((ifunc ("check_ifunc_native")));
++EOF
++
++if tryboth $CC -c $CFLAGS $test.c; then
++  SFLAGS="${SFLAGS} -DHAVE_IFUNC"
++  CFLAGS="${CFLAGS} -DHAVE_IFUNC"
++  echo "Checking for attribute(ifunc) support... Yes." | tee -a configure.log
++else
++  echo "Checking for attribute(ifunc) support... No." | tee -a configure.log
++fi
++
++# Test to see if we can use the optimizations for Power
++echo >> configure.log
++cat > $test.c <<EOF
++#ifndef _ARCH_PPC
++  #error "Target is not Power"
++#endif
++#ifndef HAVE_IFUNC
++  #error "Target doesn't support ifunc"
++#endif
++#ifndef __BUILTIN_CPU_SUPPORTS__
++  #error "Target doesn't support __builtin_cpu_supports()"
++#endif
++EOF
++
++if tryboth $CC -c $CFLAGS $test.c; then
++  echo "int main(void){return 0;}" > $test.c
++
++  if tryboth $CC -c $CFLAGS -mcpu=power8 $test.c; then
++    POWER8="-DZ_POWER8"
++    PIC_OBJC="${PIC_OBJC}"
++    OBJC="${OBJC}"
++    echo "Checking for -mcpu=power8 support... Yes." | tee -a configure.log
++  else
++    echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
++  fi
++
++  if tryboth $CC -c $CFLAGS -mcpu=power9 $test.c; then
++    POWER9="-DZ_POWER9"
++    PIC_OBJC="${PIC_OBJC}"
++    OBJC="${OBJC}"
++    echo "Checking for -mcpu=power9 support... Yes." | tee -a configure.log
++  else
++    echo "Checking for -mcpu=power9 support... No." | tee -a configure.log
++  fi
++
++  SFLAGS="${SFLAGS} ${POWER8} ${POWER9} -DZ_POWER_OPT"
++  CFLAGS="${CFLAGS} ${POWER8} ${POWER9} -DZ_POWER_OPT"
++  echo "Checking for Power optimizations support... Yes." | tee -a configure.log
++else
++  echo "Checking for Power optimizations support... No." | tee -a configure.log
++fi
++
+ # show the results in the log
+ echo >> configure.log
+ echo ALL = $ALL >> configure.log
+diff --git a/contrib/README.contrib b/contrib/README.contrib
+index a411d5c..0dda15b 100644
+--- a/contrib/README.contrib
++++ b/contrib/README.contrib
+@@ -19,6 +19,10 @@ asm686/     by Brian Raiter <breadbox@muppetlabs.com>
+ blast/      by Mark Adler <madler@alumni.caltech.edu>
+         Decompressor for output of PKWare Data Compression Library (DCL)
+ 
++gcc/        by Matheus Castanho <msc@linux.ibm.com>
++            and Rogerio Alves <rcardoso@linux.ibm.com>
++        Optimization helpers using GCC-specific extensions
++
+ delphi/     by Cosmin Truta <cosmint@cs.ubbcluj.ro>
+         Support for Delphi and C++ Builder
+ 
+@@ -63,6 +67,10 @@ minizip/    by Gilles Vollant <info@winimage.com>
+ pascal/     by Bob Dellaca <bobdl@xtra.co.nz> et al.
+         Support for Pascal
+ 
++power/      by Matheus Castanho <msc@linux.ibm.com>
++            and Rogerio Alves <rcardoso@linux.ibm.com>
++        Optimized functions for Power processors
++
+ puff/       by Mark Adler <madler@alumni.caltech.edu>
+         Small, low memory usage inflate.  Also serves to provide an
+         unambiguous description of the deflate format.
+diff --git a/contrib/gcc/zifunc.h b/contrib/gcc/zifunc.h
+new file mode 100644
+index 0000000..daf4fe4
+--- /dev/null
++++ b/contrib/gcc/zifunc.h
+@@ -0,0 +1,60 @@
++/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
++ *               2019 Rogerio Alves    <rogerio.alves@ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++#ifndef Z_IFUNC_H_
++#define Z_IFUNC_H_
++
++/* Helpers for arch optimizations */
++
++#define Z_IFUNC(fname) \
++    typeof(fname) fname __attribute__ ((ifunc (#fname "_resolver"))); \
++    local typeof(fname) *fname##_resolver(void)
++/* This is a helper macro to declare a resolver for an indirect function
++ * (ifunc). Let's say you have function
++ *
++ *    int foo (int a);
++ *
++ * for which you want to provide different implementations, for example:
++ *
++ *    int foo_clever (int a) {
++ *      ... clever things ...
++ *    }
++ *
++ *    int foo_smart (int a) {
++ *      ... smart things ...
++ *    }
++ *
++ * You will have to declare foo() as an indirect function and also provide a
++ * resolver for it, to choose between foo_clever() and foo_smart() based on
++ * some criteria you define (e.g. processor features).
++ *
++ * Since most likely foo() has a default implementation somewhere in zlib, you
++ * may have to rename it so the 'foo' symbol can be used by the ifunc without
++ * conflicts.
++ *
++ *    #define foo foo_default
++ *    int foo (int a) {
++ *      ...
++ *    }
++ *    #undef foo
++ *
++ * Now you just have to provide a resolver function to choose which function
++ * should be used (decided at runtime on the first call to foo()):
++ *
++ *    Z_IFUNC(foo) {
++ *        if (... some condition ...)
++ *          return foo_clever;
++ *
++ *        if (... other condition ...)
++ *          return foo_smart;
++ *
++ *        return foo_default;
++ *    }
++ *
++ * All calls to foo() throughout the code can remain untouched, all the magic
++ * will be done by the linker using the resolver function.
++ */
++
++#endif /* Z_IFUNC_H_ */
+diff --git a/contrib/power/power.h b/contrib/power/power.h
+new file mode 100644
+index 0000000..b42c7d6
+--- /dev/null
++++ b/contrib/power/power.h
+@@ -0,0 +1,4 @@
++/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
++ *               2019 Rogerio Alves    <rogerio.alves@ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
+-- 
+2.21.1
+
+
+From 48a893ed3f952e713bc477527e8479eaa713b34b Mon Sep 17 00:00:00 2001
+From: Rogerio Alves <rcardoso@linux.ibm.com>
+Date: Mon, 9 Dec 2019 14:40:53 -0300
+Subject: [PATCH 2/6] Adler32 vector optimization for Power.
+
+This commit implements a Power (POWER8+) vector optimization for Adler32
+checksum using VSX (vector) instructions. The VSX adler32 checksum is up
+to 10x fast than the adler32 baseline code.
+
+Author: Rogerio Alves <rcardoso@linux.ibm.com>
+---
+ CMakeLists.txt                   |   2 +-
+ Makefile.in                      |   8 ++
+ adler32.c                        |  11 ++
+ configure                        |   4 +-
+ contrib/power/adler32_power8.c   | 196 +++++++++++++++++++++++++++++++
+ contrib/power/adler32_resolver.c |  15 +++
+ contrib/power/power.h            |   3 +
+ 7 files changed, 236 insertions(+), 3 deletions(-)
+ create mode 100644 contrib/power/adler32_power8.c
+ create mode 100644 contrib/power/adler32_resolver.c
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e762023..db6ac70 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -184,7 +184,7 @@ if(CMAKE_COMPILER_IS_GNUCC)
+ 
+             if(POWER8)
+                 add_definitions(-DZ_POWER8)
+-                set(ZLIB_POWER8 )
++                set(ZLIB_POWER8 contrib/power/adler32_power8.c)
+ 
+                 set_source_files_properties(
+                     ${ZLIB_POWER8}
+diff --git a/Makefile.in b/Makefile.in
+index 5a77949..e343735 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -159,6 +159,9 @@ minigzip64.o: $(SRCDIR)test/minigzip.c $(SRCDIR)zlib.h zconf.h
+ adler32.o: $(SRCDIR)adler32.c
+ 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)adler32.c
+ 
++adler32_power8.o: $(SRCDIR)contrib/power/adler32_power8.c
++	$(CC) $(CFLAGS) -mcpu=power8 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/adler32_power8.c
++
+ crc32.o: $(SRCDIR)crc32.c
+ 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)crc32.c
+ 
+@@ -207,6 +210,11 @@ adler32.lo: $(SRCDIR)adler32.c
+ 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/adler32.o $(SRCDIR)adler32.c
+ 	-@mv objs/adler32.o $@
+ 
++adler32_power8.lo: $(SRCDIR)contrib/power/adler32_power8.c
++	-@mkdir objs 2>/dev/null || test -d objs
++	$(CC) $(SFLAGS) -mcpu=power8 $(ZINC) -DPIC -c -o objs/adler32_power8.o $(SRCDIR)contrib/power/adler32_power8.c
++	-@mv objs/adler32_power8.o $@
++
+ crc32.lo: $(SRCDIR)crc32.c
+ 	-@mkdir objs 2>/dev/null || test -d objs
+ 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/crc32.o $(SRCDIR)crc32.c
+diff --git a/adler32.c b/adler32.c
+index d0be438..4bde0fa 100644
+--- a/adler32.c
++++ b/adler32.c
+@@ -131,6 +131,12 @@ uLong ZEXPORT adler32_z(adler, buf, len)
+ }
+ 
+ /* ========================================================================= */
++
++#ifdef Z_POWER_OPT
++/* Rename the default function to avoid naming conflicts */
++#define adler32 adler32_default
++#endif /* Z_POWER_OPT */
++
+ uLong ZEXPORT adler32(adler, buf, len)
+     uLong adler;
+     const Bytef *buf;
+@@ -139,6 +145,11 @@ uLong ZEXPORT adler32(adler, buf, len)
+     return adler32_z(adler, buf, len);
+ }
+ 
++#ifdef Z_POWER_OPT
++#undef adler32
++#include "contrib/power/adler32_resolver.c"
++#endif /* Z_POWER_OPT */
++
+ /* ========================================================================= */
+ local uLong adler32_combine_(adler1, adler2, len2)
+     uLong adler1;
+diff --git a/configure b/configure
+index 8ab58a7..2cdd1d4 100755
+--- a/configure
++++ b/configure
+@@ -869,8 +869,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
+ 
+   if tryboth $CC -c $CFLAGS -mcpu=power8 $test.c; then
+     POWER8="-DZ_POWER8"
+-    PIC_OBJC="${PIC_OBJC}"
+-    OBJC="${OBJC}"
++    PIC_OBJC="${PIC_OBJC} adler32_power8.lo"
++    OBJC="${OBJC} adler32_power8.o"
+     echo "Checking for -mcpu=power8 support... Yes." | tee -a configure.log
+   else
+     echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
+diff --git a/contrib/power/adler32_power8.c b/contrib/power/adler32_power8.c
+new file mode 100644
+index 0000000..473c394
+--- /dev/null
++++ b/contrib/power/adler32_power8.c
+@@ -0,0 +1,196 @@
++/*
++ * Adler32 for POWER 8+ using VSX instructions.
++ *
++ * Calculate adler32 checksum for 16 bytes at once using POWER8+ VSX (vector)
++ * instructions.
++ *
++ * If adler32 do 1 byte at time on the first iteration s1 is s1_0 (_n means
++ * iteration n) is the initial value of adler - at start  _0 is 1 unless
++ * adler initial value is different than 1. So s1_1 = s1_0 + c[0] after
++ * the first calculation. For the iteration s1_2 = s1_1 + c[1] and so on.
++ * Hence, for iteration N, s1_N = s1_(N-1) + c[N] is the value of s1 on
++ * after iteration N.
++ *
++ * Therefore, for s2 and iteration N, s2_N = s2_0 + N*s1_N + N*c[0] +
++ * N-1*c[1] + ... + c[N]
++ *
++ * In a more general way:
++ *
++ * s1_N = s1_0 + sum(i=1 to N)c[i]
++ * s2_N = s2_0 + N*s1 + sum (i=1 to N)(N-i+1)*c[i]
++ *
++ * Where s1_N, s2_N are the values for s1, s2 after N iterations. So if we
++ * can process N-bit at time we can do this at once.
++ *
++ * Since VSX can support 16-bit vector instructions, we can process
++ * 16-bit at time using N = 16 we have:
++ *
++ * s1 = s1_16 = s1_(16-1) + c[16] = s1_0 + sum(i=1 to 16)c[i]
++ * s2 = s2_16 = s2_0 + 16*s1 + sum(i=1 to 16)(16-i+1)*c[i]
++ *
++ * After the first iteration we calculate the adler32 checksum for 16 bytes.
++ *
++ * For more background about adler32 please check the RFC:
++ * https://www.ietf.org/rfc/rfc1950.txt
++ *
++ * Copyright (C) 2019 Rogerio Alves <rcardoso@linux.ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ *
++ */
++
++#include "../../zutil.h"
++#include <altivec.h>
++
++/* Largest prime smaller than 65536.  */
++#define BASE 65521U
++#define NMAX 5552
++/* NMAX is the largest n such that 255n(n+1)/2 + (n+1)(BASE-1) <= 2^32-1.  */
++
++#define DO1(s1,s2,buf,i)  {(s1) += buf[(i)]; (s2) += (s1);}
++#define DO2(s1,s2,buf,i)  {DO1(s1,s2,buf,i); DO1(s1,s2,buf,i+1);}
++#define DO4(s1,s2,buf,i)  {DO2(s1,s2,buf,i); DO2(s1,s2,buf,i+2);}
++#define DO8(s1,s2,buf,i)  {DO4(s1,s2,buf,i); DO4(s1,s2,buf,i+4);}
++#define DO16(s1,s2,buf)   {DO8(s1,s2,buf,0); DO8(s1,s2,buf,8);}
++
++/* Vector across sum unsigned int (saturate).  */
++inline vector unsigned int vec_sumsu (vector unsigned int __a,
++        vector unsigned int __b)
++{
++  __b = vec_sld(__a, __a, 8);
++  __b = vec_add(__b, __a);
++  __a = vec_sld(__b, __b, 4);
++  __a = vec_add(__a, __b);
++
++  return __a;
++}
++
++uLong ZLIB_INTERNAL _adler32_power8 (uLong adler, const Bytef* buf, uInt len)
++{
++  /* If buffer is empty or len=0 we need to return adler initial value.  */
++  if (buf == NULL)
++      return 1;
++
++  unsigned int s1 = adler & 0xffff;
++  unsigned int s2 = (adler >> 16) & 0xffff;
++
++  /* in case user likes doing a byte at a time, keep it fast */
++  if (len == 1) {
++      s1 += buf[0];
++      if (s1 >= BASE)
++          s1 -= BASE;
++      s2 += s1;
++      if (s2 >= BASE)
++          s2 -= BASE;
++      return (s2 << 16) | s1;
++  }
++
++  /* Keep it fast for short length buffers. */
++  if (len < 16) {
++      while (len--) {
++          s1 += *buf++;
++          s2 += s1;
++      }
++      if (s1 >= BASE)
++          s1 -= BASE;
++      s2 %= BASE;
++      return (s2 << 16) | s1;
++  }
++
++  /* This is faster than VSX code for len < 64.  */
++  if (len < 64) {
++      while (len >= 16) {
++          len -= 16;
++          DO16(s1,s2,buf);
++          buf += 16;
++      }
++  } else {
++      /* Use POWER VSX instructions for len >= 64. */
++      const vector unsigned int v_zeros = { 0 };
++      const vector unsigned char v_mul = {16, 15, 14, 13, 12, 11, 10, 9, 8, 7,
++           6, 5, 4, 3, 2, 1};
++      const vector unsigned char vsh = vec_splat_u8(4);
++      const vector unsigned int vmask = {0xffffffff, 0x0, 0x0, 0x0};
++      vector unsigned int vs1 = vec_xl(0, &s1);
++      vector unsigned int vs2 = vec_xl(0, &s2);
++      vector unsigned int vs1_save = { 0 };
++      vector unsigned int vsum1, vsum2;
++      vector unsigned char vbuf;
++      int n;
++
++      /* Zeros the undefined values of vectors vs1, vs2.  */
++      vs1 = vec_and(vs1, vmask);
++      vs2 = vec_and(vs2, vmask);
++
++      /* Do length bigger than NMAX in blocks of NMAX size.  */
++      while (len >= NMAX) {
++          len -= NMAX;
++          n = NMAX / 16;
++          do {
++             vbuf = vec_xl(0, (unsigned char *) buf);
++             vsum1 = vec_sum4s(vbuf, v_zeros); /* sum(i=1 to 16) buf[i].  */
++             /* sum(i=1 to 16) buf[i]*(16-i+1).  */
++             vsum2 = vec_msum(vbuf, v_mul, v_zeros);
++             /* Save vs1.  */
++             vs1_save = vec_add(vs1_save, vs1);
++             /* Accumulate the sums.  */
++             vs1 = vec_add(vsum1, vs1);
++             vs2 = vec_add(vsum2, vs2);
++
++             buf += 16;
++          } while (--n);
++          /* Once each block of NMAX size.  */
++          vs1 = vec_sumsu(vs1, vsum1);
++          vs1_save = vec_sll(vs1_save, vsh); /* 16*vs1_save.  */
++          vs2 = vec_add(vs1_save, vs2);
++          vs2 = vec_sumsu(vs2, vsum2);
++
++          /* vs1[0] = (s1_i + sum(i=1 to 16)buf[i]) mod 65521.  */
++          vs1[0] = vs1[0] % BASE;
++          /* vs2[0] = s2_i + 16*s1_save +
++             sum(i=1 to 16)(16-i+1)*buf[i] mod 65521.  */
++          vs2[0] = vs2[0] % BASE;
++
++          vs1 = vec_and(vs1, vmask);
++          vs2 = vec_and(vs2, vmask);
++          vs1_save = v_zeros;
++      }
++
++      /* len is less than NMAX one modulo is needed.  */
++      if (len >= 16) {
++          while (len >= 16) {
++              len -= 16;
++
++              vbuf = vec_xl(0, (unsigned char *) buf);
++
++              vsum1 = vec_sum4s(vbuf, v_zeros); /* sum(i=1 to 16) buf[i].  */
++              /* sum(i=1 to 16) buf[i]*(16-i+1).  */
++              vsum2 = vec_msum(vbuf, v_mul, v_zeros);
++              /* Save vs1.  */
++              vs1_save = vec_add(vs1_save, vs1);
++              /* Accumulate the sums.  */
++              vs1 = vec_add(vsum1, vs1);
++              vs2 = vec_add(vsum2, vs2);
++
++              buf += 16;
++          }
++          /* Since the size will be always less than NMAX we do this once.  */
++          vs1 = vec_sumsu(vs1, vsum1);
++          vs1_save = vec_sll(vs1_save, vsh); /* 16*vs1_save.  */
++          vs2 = vec_add(vs1_save, vs2);
++          vs2 = vec_sumsu(vs2, vsum2);
++      }
++      /* Copy result back to s1, s2 (mod 65521).  */
++      s1 = vs1[0] % BASE;
++      s2 = vs2[0] % BASE;
++   }
++
++  /* Process tail (len < 16).  */
++  while (len--) {
++      s1 += *buf++;
++      s2 += s1;
++  }
++  s1 %= BASE;
++  s2 %= BASE;
++
++  return (s2 << 16) | s1;
++}
+diff --git a/contrib/power/adler32_resolver.c b/contrib/power/adler32_resolver.c
+new file mode 100644
+index 0000000..07a1a2c
+--- /dev/null
++++ b/contrib/power/adler32_resolver.c
+@@ -0,0 +1,15 @@
++/* Copyright (C) 2019 Rogerio Alves <rcardoso@linux.ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++#include "../gcc/zifunc.h"
++#include "power.h"
++
++Z_IFUNC(adler32) {
++#ifdef Z_POWER8
++    if (__builtin_cpu_supports("arch_2_07"))
++        return _adler32_power8;
++#endif
++
++    return adler32_default;
++}
+diff --git a/contrib/power/power.h b/contrib/power/power.h
+index b42c7d6..74de1ab 100644
+--- a/contrib/power/power.h
++++ b/contrib/power/power.h
+@@ -2,3 +2,6 @@
+  *               2019 Rogerio Alves    <rogerio.alves@ibm.com>, IBM
+  * For conditions of distribution and use, see copyright notice in zlib.h
+  */
++#include "../../zutil.h"
++
++uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
+-- 
+2.21.1
+
+
+From edb3a4c0eb60f7141a4c876ad2f1d4e1b4375e39 Mon Sep 17 00:00:00 2001
+From: Rogerio Alves <rcardoso@linux.ibm.com>
+Date: Tue, 10 Dec 2019 15:04:28 -0300
+Subject: [PATCH 3/6] Tests for Adler32 vector optimization for Power.
+
+This commit add tests for adler32 vector optimization for Power (POWER8+).
+
+Author: Rogerio Alves <rcardoso@linux.ibm.com>
+---
+ .gitignore          |   3 +
+ CMakeLists.txt      |  10 ++
+ Makefile.in         |  35 +++--
+ test/adler32_test.c | 339 ++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 377 insertions(+), 10 deletions(-)
+ create mode 100644 test/adler32_test.c
+
+diff --git a/.gitignore b/.gitignore
+index b1c7422..8a92894 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -13,6 +13,9 @@
+ *.gcno
+ *.gcov
+ 
++/adler32_test
++/adler32_test64
++/adler32_testsh
+ /example
+ /example64
+ /examplesh
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index db6ac70..862e5c1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -297,6 +297,10 @@ endif()
+ # Example binaries
+ #============================================================================
+ 
++add_executable(adler32_test test/adler32_test.c)
++target_link_libraries(adler32_test zlib)
++add_test(adler32_test adler32_test)
++
+ add_executable(example test/example.c)
+ target_link_libraries(example zlib)
+ add_test(example example)
+@@ -305,6 +309,12 @@ add_executable(minigzip test/minigzip.c)
+ target_link_libraries(minigzip zlib)
+ 
+ if(HAVE_OFF64_T)
++
++    add_executable(adler32_test64 test/adler32_test.c)
++    target_link_libraries(adler32_test64 zlib)
++    set_target_properties(adler32_test64 PROPERTIES COMPILE_FLAGS "-D_FILE_OFFSET_BITS=64")
++    add_test(adler32_test64 adler32_test64)
++
+     add_executable(example64 test/example.c)
+     target_link_libraries(example64 zlib)
+     set_target_properties(example64 PROPERTIES COMPILE_FLAGS "-D_FILE_OFFSET_BITS=64")
+diff --git a/Makefile.in b/Makefile.in
+index e343735..17a5211 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -75,11 +75,11 @@ PIC_OBJS = $(PIC_OBJC) $(PIC_OBJA)
+ 
+ all: static shared
+ 
+-static: example$(EXE) minigzip$(EXE)
++static: adler32_test$(EXE) example$(EXE) minigzip$(EXE)
+ 
+-shared: examplesh$(EXE) minigzipsh$(EXE)
++shared: adler32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE)
+ 
+-all64: example64$(EXE) minigzip64$(EXE)
++all64: adler32_test64$(EXE) example64$(EXE) minigzip64$(EXE)
+ 
+ check: test
+ 
+@@ -87,7 +87,7 @@ test: all teststatic testshared
+ 
+ teststatic: static
+ 	@TMPST=tmpst_$$; \
+-	if echo hello world | ./minigzip | ./minigzip -d && ./example $$TMPST ; then \
++	if echo hello world | ./minigzip | ./minigzip -d && ./example $$TMPST && ./adler32_test; then \
+ 	  echo '		*** zlib test OK ***'; \
+ 	else \
+ 	  echo '		*** zlib test FAILED ***'; false; \
+@@ -100,7 +100,7 @@ testshared: shared
+ 	DYLD_LIBRARY_PATH=`pwd`:$(DYLD_LIBRARY_PATH) ; export DYLD_LIBRARY_PATH; \
+ 	SHLIB_PATH=`pwd`:$(SHLIB_PATH) ; export SHLIB_PATH; \
+ 	TMPSH=tmpsh_$$; \
+-	if echo hello world | ./minigzipsh | ./minigzipsh -d && ./examplesh $$TMPSH; then \
++	if echo hello world | ./minigzipsh | ./minigzipsh -d && ./examplesh $$TMPSH && ./adler32_testsh; then \
+ 	  echo '		*** zlib shared test OK ***'; \
+ 	else \
+ 	  echo '		*** zlib shared test FAILED ***'; false; \
+@@ -109,7 +109,7 @@ testshared: shared
+ 
+ test64: all64
+ 	@TMP64=tmp64_$$; \
+-	if echo hello world | ./minigzip64 | ./minigzip64 -d && ./example64 $$TMP64; then \
++	if echo hello world | ./minigzip64 | ./minigzip64 -d && ./example64 $$TMP64 && ./adler32_test64; then \
+ 	  echo '		*** zlib 64-bit test OK ***'; \
+ 	else \
+ 	  echo '		*** zlib 64-bit test FAILED ***'; false; \
+@@ -143,12 +143,18 @@ match.lo: match.S
+ 	mv _match.o match.lo
+ 	rm -f _match.s
+ 
++adler32_test.o: $(SRCDIR)test/adler32_test.c $(SRCDIR)zlib.h zconf.h
++	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/adler32_test.c
++
+ example.o: $(SRCDIR)test/example.c $(SRCDIR)zlib.h zconf.h
+ 	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/example.c
+ 
+ minigzip.o: $(SRCDIR)test/minigzip.c $(SRCDIR)zlib.h zconf.h
+ 	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/minigzip.c
+ 
++adler32_test64.o: $(SRCDIR)test/adler32_test.c $(SRCDIR)zlib.h zconf.h
++	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/adler32_test.c
++
+ example64.o: $(SRCDIR)test/example.c $(SRCDIR)zlib.h zconf.h
+ 	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/example.c
+ 
+@@ -293,18 +299,27 @@ placebo $(SHAREDLIBV): $(PIC_OBJS) libz.a
+ 	ln -s $@ $(SHAREDLIBM)
+ 	-@rmdir objs
+ 
++adler32_test$(EXE): adler32_test.o $(STATICLIB)
++	$(CC) $(CFLAGS) -o $@ adler32_test.o $(TEST_LDFLAGS)
++
+ example$(EXE): example.o $(STATICLIB)
+ 	$(CC) $(CFLAGS) -o $@ example.o $(TEST_LDFLAGS)
+ 
+ minigzip$(EXE): minigzip.o $(STATICLIB)
+ 	$(CC) $(CFLAGS) -o $@ minigzip.o $(TEST_LDFLAGS)
+ 
++adler32_testsh$(EXE): adler32_test.o $(SHAREDLIBV)
++	$(CC) $(CFLAGS) -o $@ adler32_test.o -L. $(SHAREDLIBV)
++
+ examplesh$(EXE): example.o $(SHAREDLIBV)
+ 	$(CC) $(CFLAGS) -o $@ example.o -L. $(SHAREDLIBV)
+ 
+ minigzipsh$(EXE): minigzip.o $(SHAREDLIBV)
+ 	$(CC) $(CFLAGS) -o $@ minigzip.o -L. $(SHAREDLIBV)
+ 
++adler32_test64$(EXE): adler32_test64.o $(STATICLIB)
++	$(CC) $(CFLAGS) -o $@ adler32_test64.o $(TEST_LDFLAGS)
++
+ example64$(EXE): example64.o $(STATICLIB)
+ 	$(CC) $(CFLAGS) -o $@ example64.o $(TEST_LDFLAGS)
+ 
+@@ -374,8 +389,8 @@ zconf: $(SRCDIR)zconf.h.in
+ mostlyclean: clean
+ clean:
+ 	rm -f *.o *.lo *~ \
+-	   example$(EXE) minigzip$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
+-	   example64$(EXE) minigzip64$(EXE) \
++	   adler32_test$(EXE) example$(EXE) minigzip$(EXE) adler32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
++	   adler32_test64$(EXE) example64$(EXE) minigzip64$(EXE) \
+ 	   infcover \
+ 	   libz.* foo.gz so_locations \
+ 	   _match.s maketree contrib/infback9/*.o
+@@ -397,7 +412,7 @@ distclean: clean zconf zconf.h.cmakein docs
+ tags:
+ 	etags $(SRCDIR)*.[ch]
+ 
+-adler32.o zutil.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
++adler32.o adler32_test.o zutil.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
+ gzclose.o gzlib.o gzread.o gzwrite.o: $(SRCDIR)zlib.h zconf.h $(SRCDIR)gzguts.h
+ compress.o example.o minigzip.o uncompr.o: $(SRCDIR)zlib.h zconf.h
+ crc32.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)crc32.h
+@@ -407,7 +422,7 @@ inffast.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h $(SRCDIR
+ inftrees.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h
+ trees.o: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)trees.h
+ 
+-adler32.lo zutil.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
++adler32.lo adler32_test.lo zutil.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
+ gzclose.lo gzlib.lo gzread.lo gzwrite.lo: $(SRCDIR)zlib.h zconf.h $(SRCDIR)gzguts.h
+ compress.lo example.lo minigzip.lo uncompr.lo: $(SRCDIR)zlib.h zconf.h
+ crc32.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)crc32.h
+diff --git a/test/adler32_test.c b/test/adler32_test.c
+new file mode 100644
+index 0000000..8042295
+--- /dev/null
++++ b/test/adler32_test.c
+@@ -0,0 +1,339 @@
++/* adler32_test.c -- unit test for adler32 in the zlib compression library
++ * Copyright (C) 2019 Rogerio Alves <rcardoso@linux.ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++#include "zlib.h"
++#include <stdio.h>
++
++#ifdef STDC
++#  include <string.h>
++#  include <stdlib.h>
++#endif
++
++void test_adler32  OF((uLong adler, Byte* buf, z_size_t len, uLong chk, int line));
++int main           OF((void));
++
++typedef struct {
++    int line;
++    uLong adler;
++    char* buf;
++    int len;
++    uLong expect;
++} adler32_test;
++
++void test_adler32(adler, buf, len, chk, line)
++    uLong adler;
++    Byte *buf;
++    z_size_t len;
++    uLong chk;
++    int line;
++{
++    uLong res = adler32(adler, buf, len);
++    if (res != chk) {
++        fprintf(stderr, "FAIL [%d]: adler32 returned 0x%08X expected 0x%08X\n",
++                line, (unsigned int)res, (unsigned int)chk);
++        exit(1);
++    }
++}
++
++static const adler32_test tests[] = {
++   {__LINE__,0x1, 0x0, 0, 0x1},
++   {__LINE__,0x1, "", 1, 0x10001},
++   {__LINE__,0x1, "a", 1, 0x620062},
++   {__LINE__,0x1, "abacus", 6, 0x8400270},
++   {__LINE__,0x1, "backlog", 7, 0xb1f02d4},
++   {__LINE__,0x1, "campfire", 8, 0xea10348},
++   {__LINE__,0x1, "delta", 5, 0x61a020b},
++   {__LINE__,0x1, "executable", 10, 0x16fa0423},
++   {__LINE__,0x1, "file", 4, 0x41401a1},
++   {__LINE__,0x1, "greatest", 8, 0xefa0360},
++   {__LINE__,0x1, "inverter", 8, 0xf6f0370},
++   {__LINE__,0x1, "jigsaw", 6, 0x8bd0286},
++   {__LINE__,0x1, "karate", 6, 0x8a50279},
++   {__LINE__,0x1, "landscape", 9, 0x126a03ac},
++   {__LINE__,0x1, "machine", 7, 0xb5302d6},
++   {__LINE__,0x1, "nanometer", 9, 0x12d803ca},
++   {__LINE__,0x1, "oblivion", 8, 0xf220363},
++   {__LINE__,0x1, "panama", 6, 0x8a1026f},
++   {__LINE__,0x1, "quest", 5, 0x6970233},
++   {__LINE__,0x1, "resource", 8, 0xf8d0369},
++   {__LINE__,0x1, "secret", 6, 0x8d10287},
++   {__LINE__,0x1, "ultimate", 8, 0xf8d0366},
++   {__LINE__,0x1, "vector", 6, 0x8fb0294},
++   {__LINE__,0x1, "walrus", 6, 0x918029f},
++   {__LINE__,0x1, "xeno", 4, 0x45e01bb},
++   {__LINE__,0x1, "yelling", 7, 0xbfe02f5},
++   {__LINE__,0x1, "zero", 4, 0x46e01c1},
++   {__LINE__,0x1, "4BJD7PocN1VqX0jXVpWB", 20, 0x3eef064d},
++   {__LINE__,0x1, "F1rPWI7XvDs6nAIRx41l", 20, 0x425d065f},
++   {__LINE__,0x1, "ldhKlsVkPFOveXgkGtC2", 20, 0x4f1a073e},
++   {__LINE__,0x1, "5KKnGOOrs8BvJ35iKTOS", 20, 0x42290650},
++   {__LINE__,0x1, "0l1tw7GOcem06Ddu7yn4", 20, 0x43fd0690},
++   {__LINE__,0x1, "MCr47CjPIn9R1IvE1Tm5", 20, 0x3f770609},
++   {__LINE__,0x1, "UcixbzPKTIv0SvILHVdO", 20, 0x4c7c0703},
++   {__LINE__,0x1, "dGnAyAhRQDsWw0ESou24", 20, 0x48ac06b7},
++   {__LINE__,0x1, "di0nvmY9UYMYDh0r45XT", 20, 0x489a0698},
++   {__LINE__,0x1, "2XKDwHfAhFsV0RhbqtvH", 20, 0x44a906e6},
++   {__LINE__,0x1, "ZhrANFIiIvRnqClIVyeD", 20, 0x4a29071c},
++   {__LINE__,0x1, "v7Q9ehzioTOVeDIZioT1", 20, 0x4a7706f9},
++   {__LINE__,0x1, "Yod5hEeKcYqyhfXbhxj2", 20, 0x4ce60769},
++   {__LINE__,0x1, "GehSWY2ay4uUKhehXYb0", 20, 0x48ae06e5},
++   {__LINE__,0x1, "kwytJmq6UqpflV8Y8GoE", 20, 0x51d60750},
++   {__LINE__,0x1, "70684206568419061514", 20, 0x2b100414},
++   {__LINE__,0x1, "42015093765128581010", 20, 0x2a550405},
++   {__LINE__,0x1, "88214814356148806939", 20, 0x2b450423},
++   {__LINE__,0x1, "43472694284527343838", 20, 0x2b460421},
++   {__LINE__,0x1, "49769333513942933689", 20, 0x2bc1042b},
++   {__LINE__,0x1, "54979784887993251199", 20, 0x2ccd043d},
++   {__LINE__,0x1, "58360544869206793220", 20, 0x2b68041a},
++   {__LINE__,0x1, "27347953487840714234", 20, 0x2b84041d},
++   {__LINE__,0x1, "07650690295365319082", 20, 0x2afa0417},
++   {__LINE__,0x1, "42655507906821911703", 20, 0x2aff0412},
++   {__LINE__,0x1, "29977409200786225655", 20, 0x2b8d0420},
++   {__LINE__,0x1, "85181542907229116674", 20, 0x2b140419},
++   {__LINE__,0x1, "87963594337989416799", 20, 0x2c8e043f},
++   {__LINE__,0x1, "21395988329504168551", 20, 0x2b68041f},
++   {__LINE__,0x1, "51991013580943379423", 20, 0x2af10417},
++   {__LINE__,0x1, "*]+@!);({_$;}[_},?{?;(_?,=-][@", 30, 0x7c9d0841},
++   {__LINE__,0x1, "_@:_).&(#.[:[{[:)$++-($_;@[)}+", 30, 0x71060751},
++   {__LINE__,0x1, "&[!,[$_==}+.]@!;*(+},[;:)$;)-@", 30, 0x7095070a},
++   {__LINE__,0x1, "]{.[.+?+[[=;[?}_#&;[=)__$$:+=_", 30, 0x82530815},
++   {__LINE__,0x1, "-%.)=/[@].:.(:,()$;=%@-$?]{%+%", 30, 0x61250661},
++   {__LINE__,0x1, "+]#$(@&.=:,*];/.!]%/{:){:@(;)$", 30, 0x642006a3},
++   {__LINE__,0x1, ")-._.:?[&:.=+}(*$/=!.${;(=$@!}", 30, 0x674206cb},
++   {__LINE__,0x1, ":(_*&%/[[}+,?#$&*+#[([*-/#;%(]", 30, 0x67670680},
++   {__LINE__,0x1, "{[#-;:$/{)(+[}#]/{&!%(@)%:@-$:", 30, 0x7547070f},
++   {__LINE__,0x1, "_{$*,}(&,@.)):=!/%(&(,,-?$}}}!", 30, 0x69ea06ee},
++   {__LINE__,0x1, "e$98KNzqaV)Y:2X?]77].{gKRD4G5{mHZk,Z)SpU%L3FSgv!Wb8MLAFdi{+fp)c,@8m6v)yXg@]HBDFk?.4&}g5_udE*JHCiH=aL", 100, 0x1b01e92},
++   {__LINE__,0x1, "r*Fd}ef+5RJQ;+W=4jTR9)R*p!B;]Ed7tkrLi;88U7g@3v!5pk2X6D)vt,.@N8c]@yyEcKi[vwUu@.Ppm@C6%Mv*3Nw}Y,58_aH)", 100, 0xfbdb1e96},
++   {__LINE__,0x1, "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&", 100, 0x47a61ec8},
++   {__LINE__,0x1, "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"
++    "byRKqAu3J", 5552, 0x8b81718f},
++   {__LINE__,0x7a30360d, 0x0, 0, 0x1},
++   {__LINE__,0x6fd767ee, "", 1, 0xd7c567ee},
++   {__LINE__,0xefeb7589, "a", 1, 0x65e475ea},
++   {__LINE__,0x61cf7e6b, "abacus", 6, 0x60b880da},
++   {__LINE__,0xdc712e2, "backlog", 7, 0x9d0d15b5},
++   {__LINE__,0xad23c7fd, "campfire", 8, 0xfbfecb44},
++   {__LINE__,0x85cb2317, "delta", 5, 0x3b622521},
++   {__LINE__,0x9eed31b0, "executable", 10, 0xa6db35d2},
++   {__LINE__,0xb94f34ca, "file", 4, 0x9096366a},
++   {__LINE__,0xab058a2, "greatest", 8, 0xded05c01},
++   {__LINE__,0x5bff2b7a, "inverter", 8, 0xc7452ee9},
++   {__LINE__,0x605c9a5f, "jigsaw", 6, 0x7899ce4},
++   {__LINE__,0x51bdeea5, "karate", 6, 0xf285f11d},
++   {__LINE__,0x85c21c79, "landscape", 9, 0x98732024},
++   {__LINE__,0x97216f56, "machine", 7, 0xadf4722b},
++   {__LINE__,0x18444af2, "nanometer", 9, 0xcdb34ebb},
++   {__LINE__,0xbe6ce359, "oblivion", 8, 0xe8b7e6bb},
++   {__LINE__,0x843071f1, "panama", 6, 0x389e745f},
++   {__LINE__,0xf2480c60, "quest", 5, 0x36c90e92},
++   {__LINE__,0x2d2feb3d, "resource", 8, 0x9705eea5},
++   {__LINE__,0x7490310a, "secret", 6, 0xa3a63390},
++   {__LINE__,0x97d247d4, "ultimate", 8, 0xe6154b39},
++   {__LINE__,0x93cf7599, "vector", 6, 0x5e87782c},
++   {__LINE__,0x73c84278, "walrus", 6, 0xbc84516},
++   {__LINE__,0x228a87d1, "xeno", 4, 0x4646898b},
++   {__LINE__,0xa7a048d0, "yelling", 7, 0xb1654bc4},
++   {__LINE__,0x1f0ded40, "zero", 4, 0xd8a4ef00},
++   {__LINE__,0xa804a62f, "4BJD7PocN1VqX0jXVpWB", 20, 0xe34eac7b},
++   {__LINE__,0x508fae6a, "F1rPWI7XvDs6nAIRx41l", 20, 0x33f2b4c8},
++   {__LINE__,0xe5adaf4f, "ldhKlsVkPFOveXgkGtC2", 20, 0xe7b1b68c},
++   {__LINE__,0x67136a40, "5KKnGOOrs8BvJ35iKTOS", 20, 0xf6a0708f},
++   {__LINE__,0xb00c4a10, "0l1tw7GOcem06Ddu7yn4", 20, 0xbd8f509f},
++   {__LINE__,0x2e0c84b5, "MCr47CjPIn9R1IvE1Tm5", 20, 0xcc298abd},
++   {__LINE__,0x81238d44, "UcixbzPKTIv0SvILHVdO", 20, 0xd7809446},
++   {__LINE__,0xf853aa92, "dGnAyAhRQDsWw0ESou24", 20, 0x9525b148},
++   {__LINE__,0x5a692325, "di0nvmY9UYMYDh0r45XT", 20, 0x620029bc},
++   {__LINE__,0x3275b9f, "2XKDwHfAhFsV0RhbqtvH", 20, 0x70916284},
++   {__LINE__,0x38371feb, "ZhrANFIiIvRnqClIVyeD", 20, 0xd52706},
++   {__LINE__,0xafc8bf62, "v7Q9ehzioTOVeDIZioT1", 20, 0xeeb4c65a},
++   {__LINE__,0x9b07db73, "Yod5hEeKcYqyhfXbhxj2", 20, 0xde3e2db},
++   {__LINE__,0xe75b214, "GehSWY2ay4uUKhehXYb0", 20, 0x4171b8f8},
++   {__LINE__,0x72d0fe6f, "kwytJmq6UqpflV8Y8GoE", 20, 0xa66a05cd},
++   {__LINE__,0xf857a4b1, "70684206568419061514", 20, 0x1f9a8c4},
++   {__LINE__,0x54b8e14, "42015093765128581010", 20, 0x49c19218},
++   {__LINE__,0xd6aa5616, "88214814356148806939", 20, 0xbbfc5a38},
++   {__LINE__,0x11e63098, "43472694284527343838", 20, 0x93434b8},
++   {__LINE__,0xbe92385, "49769333513942933689", 20, 0xfe1827af},
++   {__LINE__,0x49511de0, "54979784887993251199", 20, 0xcba8221c},
++   {__LINE__,0x3db13bc1, "58360544869206793220", 20, 0x14643fda},
++   {__LINE__,0xbb899bea, "27347953487840714234", 20, 0x1604a006},
++   {__LINE__,0xf6cd9436, "07650690295365319082", 20, 0xb69f984c},
++   {__LINE__,0x9109e6c3, "42655507906821911703", 20, 0xc43eead4},
++   {__LINE__,0x75770fc, "29977409200786225655", 20, 0x707751b},
++   {__LINE__,0x69b1d19b, "85181542907229116674", 20, 0xf5bdd5b3},
++   {__LINE__,0xc6132975, "87963594337989416799", 20, 0x2fed2db3},
++   {__LINE__,0xd58cb00c, "21395988329504168551", 20, 0xc2a2b42a},
++   {__LINE__,0xb63b8caa, "51991013580943379423", 20, 0xdf0590c0},
++   {__LINE__,0x8a45a2b8, "*]+@!);({_$;}[_},?{?;(_?,=-][@", 30, 0x1980aaf8},
++   {__LINE__,0xcbe95b78, "_@:_).&(#.[:[{[:)$++-($_;@[)}+", 30, 0xf58662c8},
++   {__LINE__,0x4ef8a54b, "&[!,[$_==}+.]@!;*(+},[;:)$;)-@", 30, 0x1f65ac54},
++   {__LINE__,0x76ad267a, "]{.[.+?+[[=;[?}_#&;[=)__$$:+=_", 30, 0x7b792e8e},
++   {__LINE__,0x569e613c, "-%.)=/[@].:.(:,()$;=%@-$?]{%+%", 30, 0x1d61679c},
++   {__LINE__,0x36aa61da, "+]#$(@&.=:,*];/.!]%/{:){:@(;)$", 30, 0x12ec687c},
++   {__LINE__,0xf67222df, ")-._.:?[&:.=+}(*$/=!.${;(=$@!}", 30, 0x740329a9},
++   {__LINE__,0x74b34fd3, ":(_*&%/[[}+,?#$&*+#[([*-/#;%(]", 30, 0x374c5652},
++   {__LINE__,0x351fd770, "{[#-;:$/{)(+[}#]/{&!%(@)%:@-$:", 30, 0xeadfde7e},
++   {__LINE__,0xc45aef77, "_{$*,}(&,@.)):=!/%(&(,,-?$}}}!", 30, 0x3fcbf664},
++   {__LINE__,0xd034ea71, "e$98KNzqaV)Y:2X?]77].{gKRD4G5{mHZk,Z)SpU%L3FSgv!Wb8MLAFdi{+fp)c,@8m6v)yXg@]HBDFk?.4&}g5_udE*JHCiH=aL", 100, 0x6b080911},
++   {__LINE__,0xdeadc0de, "r*Fd}ef+5RJQ;+W=4jTR9)R*p!B;]Ed7tkrLi;88U7g@3v!5pk2X6D)vt,.@N8c]@yyEcKi[vwUu@.Ppm@C6%Mv*3Nw}Y,58_aH)", 100, 0x355fdf73},
++   {__LINE__,0xba5eba11, "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&", 100, 0xb48bd8d8},
++   {__LINE__,0x7712aa45, "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"
++    "byRKqAu3J", 5552, 0x7dc51be2},
++};
++
++static const int test_size = sizeof(tests) / sizeof(tests[0]);
++
++int main(void)
++{
++    int i;
++    for (i = 0; i < test_size; i++) {
++        test_adler32(tests[i].adler, (Byte*) tests[i].buf, tests[i].len,
++                   tests[i].expect, tests[i].line);
++    }
++    return 0;
++}
+-- 
+2.21.1
+
+
+From 46047df6d40db7ebb900889511c787449bdfc3fa Mon Sep 17 00:00:00 2001
+From: Matheus Castanho <msc@linux.ibm.com>
+Date: Tue, 29 Oct 2019 18:04:11 -0300
+Subject: [PATCH 4/6] Add vectorized longest_match for Power
+
+This commit introduces an optimized version of the longest_match
+function for Power processors. It uses VSX instructions to match
+16 bytes at a time on each comparison, instead of one by one.
+
+Author: Matheus Castanho <msc@linux.ibm.com>
+---
+ CMakeLists.txt                         |   3 +-
+ Makefile.in                            |   8 ++
+ configure                              |   4 +-
+ contrib/power/longest_match_power9.c   | 182 +++++++++++++++++++++++++
+ contrib/power/longest_match_resolver.c |  15 ++
+ contrib/power/power.h                  |   3 +
+ deflate.c                              |  13 ++
+ 7 files changed, 225 insertions(+), 3 deletions(-)
+ create mode 100644 contrib/power/longest_match_power9.c
+ create mode 100644 contrib/power/longest_match_resolver.c
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 862e5c1..a52fa6c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -196,7 +196,8 @@ if(CMAKE_COMPILER_IS_GNUCC)
+ 
+             if(POWER9)
+                 add_definitions(-DZ_POWER9)
+-                set(ZLIB_POWER9 )
++                set(ZLIB_POWER9
++                    contrib/power/longest_match_power9.c)
+ 
+                 set_source_files_properties(
+                     ${ZLIB_POWER9}
+diff --git a/Makefile.in b/Makefile.in
+index 17a5211..8b407ae 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -174,6 +174,9 @@ crc32.o: $(SRCDIR)crc32.c
+ deflate.o: $(SRCDIR)deflate.c
+ 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)deflate.c
+ 
++longest_match_power9.o: $(SRCDIR)contrib/power/longest_match_power9.c
++	$(CC) $(CFLAGS) -mcpu=power9 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/longest_match_power9.c
++
+ infback.o: $(SRCDIR)infback.c
+ 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)infback.c
+ 
+@@ -231,6 +234,11 @@ deflate.lo: $(SRCDIR)deflate.c
+ 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/deflate.o $(SRCDIR)deflate.c
+ 	-@mv objs/deflate.o $@
+ 
++longest_match_power9.lo: $(SRCDIR)contrib/power/longest_match_power9.c
++	-@mkdir objs 2>/dev/null || test -d objs
++	$(CC) $(SFLAGS) -mcpu=power9 $(ZINC) -DPIC -c -o objs/longest_match_power9.o $(SRCDIR)contrib/power/longest_match_power9.c
++	-@mv objs/longest_match_power9.o $@
++
+ infback.lo: $(SRCDIR)infback.c
+ 	-@mkdir objs 2>/dev/null || test -d objs
+ 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/infback.o $(SRCDIR)infback.c
+diff --git a/configure b/configure
+index 2cdd1d4..2b90134 100755
+--- a/configure
++++ b/configure
+@@ -878,8 +878,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
+ 
+   if tryboth $CC -c $CFLAGS -mcpu=power9 $test.c; then
+     POWER9="-DZ_POWER9"
+-    PIC_OBJC="${PIC_OBJC}"
+-    OBJC="${OBJC}"
++    PIC_OBJC="$PIC_OBJC longest_match_power9.lo"
++    OBJC="$OBJC longest_match_power9.o"
+     echo "Checking for -mcpu=power9 support... Yes." | tee -a configure.log
+   else
+     echo "Checking for -mcpu=power9 support... No." | tee -a configure.log
+diff --git a/contrib/power/longest_match_power9.c b/contrib/power/longest_match_power9.c
+new file mode 100644
+index 0000000..cf586ce
+--- /dev/null
++++ b/contrib/power/longest_match_power9.c
+@@ -0,0 +1,182 @@
++/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++#include <altivec.h>
++#include "../../deflate.h"
++
++local inline int vec_match OF((Bytef* scan, Bytef* match))
++    __attribute__((always_inline));
++
++local inline int vec_match(Bytef* scan, Bytef* match)
++{
++    vector unsigned char vscan, vmatch, vc;
++
++    vscan  = *((vector unsigned char *) scan);
++    vmatch = *((vector unsigned char *) match);
++
++    /* Compare 16 bytes at a time.
++     * Each byte of vc will be either all ones or all zeroes,
++     * depending on the result of the comparison
++     */
++    vc = (vector unsigned char) vec_cmpne(vscan,vmatch);
++
++    /* Since the index of matching bytes will contain only zeroes
++     * on vc (since we used cmpne), counting the number of consecutive
++     * bytes where LSB == 0 is the same as counting the length of the match.
++     */
++    return vec_cnttz_lsbb(vc);
++}
++
++uInt ZLIB_INTERNAL _longest_match_power9(deflate_state *s, IPos cur_match)
++{
++    unsigned chain_length = s->max_chain_length;/* max hash chain length */
++    register Bytef *scan = s->window + s->strstart; /* current string */
++    register Bytef *match;                      /* matched string */
++    register int len;                           /* length of current match */
++    int best_len = (int)s->prev_length;         /* best match length so far */
++    int nice_match = s->nice_match;             /* stop if match long enough */
++    int mbytes;                                 /* matched bytes inside loop */
++    IPos limit = s->strstart > (IPos)MAX_DIST(s) ?
++        s->strstart - (IPos)MAX_DIST(s) : 0;
++    /* Stop when cur_match becomes <= limit. To simplify the code,
++     * we prevent matches with the string of window index 0.
++     */
++    Posf *prev = s->prev;
++    uInt wmask = s->w_mask;
++
++#if (MAX_MATCH == 258)
++    /* Compare the last two bytes at once. */
++    register Bytef *strend2 = s->window + s->strstart + MAX_MATCH - 2;
++    register ush scan_end   = *(ushf*)(scan+best_len-1);
++#else
++    register Bytef *strend = s->window + s->strstart + MAX_MATCH;
++    register Byte scan_end1  = scan[best_len-1];
++    register Byte scan_end   = scan[best_len];
++#endif
++
++    /* The code is optimized for HASH_BITS >= 8 and MAX_MATCH-2 multiple of 16.
++     * It is easy to get rid of this optimization if necessary.
++     */
++    Assert(s->hash_bits >= 8 && MAX_MATCH == 258, "Code too clever");
++
++    /* Do not waste too much time if we already have a good match: */
++    if (s->prev_length >= s->good_match) {
++        chain_length >>= 2;
++    }
++    /* Do not look for matches beyond the end of the input. This is necessary
++     * to make deflate deterministic.
++     */
++    if ((uInt)nice_match > s->lookahead) nice_match = (int)s->lookahead;
++
++    Assert((ulg)s->strstart <= s->window_size-MIN_LOOKAHEAD, "need lookahead");
++
++    do {
++        Assert(cur_match < s->strstart, "no future");
++        match = s->window + cur_match;
++
++        /* Skip to next match if the match length cannot increase
++         * or if the match length is less than 2.  Note that the checks below
++         * for insufficient lookahead only occur occasionally for performance
++         * reasons.  Therefore uninitialized memory will be accessed, and
++         * conditional jumps will be made that depend on those values.
++         * However the length of the match is limited to the lookahead, so
++         * the output of deflate is not affected by the uninitialized values.
++         */
++
++/* MAX_MATCH - 2 should be a multiple of 16 for this optimization to work. */
++#if (MAX_MATCH == 258)
++
++        /* Compare ending (2 bytes) and beginning of potential match.
++         *
++         * On Power processors, loading a 16-byte vector takes only 1 extra
++         * cycle compared to a regular byte load. So instead of comparing the
++         * first two bytes and then the rest later if they match, we can compare
++         * the first 16 at once, and when we have a match longer than 2, we will
++         * already have the result of comparing the first 16 bytes saved in mbytes.
++         */
++        if (*(ushf*)(match+best_len-1) != scan_end ||
++             (mbytes = vec_match(scan,match)) < 3) continue;
++
++        scan  += mbytes;
++        match += mbytes;
++
++        /* In case when we may have a match longer than 16, we perform further
++         * comparisons in chunks of 16 and keep going while all bytes match.
++         */
++        while(mbytes == 16) {
++            mbytes = vec_match(scan,match);
++            scan += mbytes;
++            match += mbytes;
++
++            /* We also have to limit the maximum match based on MAX_MATCH.
++             * Since we are comparing 16 bytes at a time and MAX_MATCH == 258 (to
++             * comply with default implementation), we should stop comparing when
++             * we have matched 256 bytes, which happens when scan == strend2.
++             * In this ("rare") case, we have to check the remaining 2 bytes
++             * individually using common load and compare operations.
++             */
++            if(scan >= strend2) {
++                if(*scan == *match) {
++                    if(*++scan == *++match)
++                        scan++;
++                }
++                break;
++            }
++        }
++
++        Assert(scan <= s->window+(unsigned)(s->window_size-1), "wild scan");
++
++        len = (MAX_MATCH - 2) - (int)(strend2 - scan);
++        scan = strend2 - (MAX_MATCH - 2);
++
++#else /* MAX_MATCH == 258 */
++
++        if (match[best_len]   != scan_end  ||
++            match[best_len-1] != scan_end1 ||
++            *match            != *scan     ||
++            *++match          != scan[1])      continue;
++
++        /* The check at best_len-1 can be removed because it will be made
++         * again later. (This heuristic is not always a win.)
++         * It is not necessary to compare scan[2] and match[2] since they
++         * are always equal when the other bytes match, given that
++         * the hash keys are equal and that HASH_BITS >= 8.
++         */
++        scan += 2, match++;
++        Assert(*scan == *match, "match[2]?");
++
++        /* We check for insufficient lookahead only every 8th comparison;
++         * the 256th check will be made at strstart+258.
++         */
++        do {
++        } while (*++scan == *++match && *++scan == *++match &&
++                 *++scan == *++match && *++scan == *++match &&
++                 *++scan == *++match && *++scan == *++match &&
++                 *++scan == *++match && *++scan == *++match &&
++                 scan < strend);
++
++        Assert(scan <= s->window+(unsigned)(s->window_size-1), "wild scan");
++
++        len = MAX_MATCH - (int)(strend - scan);
++        scan = strend - MAX_MATCH;
++
++#endif /* MAX_MATCH == 258 */
++
++        if (len > best_len) {
++            s->match_start = cur_match;
++            best_len = len;
++            if (len >= nice_match) break;
++#if (MAX_MATCH == 258)
++            scan_end = *(ushf*)(scan+best_len-1);
++#else
++            scan_end1  = scan[best_len-1];
++            scan_end   = scan[best_len];
++#endif
++        }
++    } while ((cur_match = prev[cur_match & wmask]) > limit
++             && --chain_length != 0);
++
++    if ((uInt)best_len <= s->lookahead) return (uInt)best_len;
++    return s->lookahead;
++}
+diff --git a/contrib/power/longest_match_resolver.c b/contrib/power/longest_match_resolver.c
+new file mode 100644
+index 0000000..e81f28a
+--- /dev/null
++++ b/contrib/power/longest_match_resolver.c
+@@ -0,0 +1,15 @@
++/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++#include "../gcc/zifunc.h"
++#include "power.h"
++
++Z_IFUNC(longest_match) {
++#ifdef Z_POWER9
++    if (__builtin_cpu_supports("arch_3_00"))
++        return _longest_match_power9;
++#endif
++
++    return longest_match_default;
++}
+diff --git a/contrib/power/power.h b/contrib/power/power.h
+index 74de1ab..39f209f 100644
+--- a/contrib/power/power.h
++++ b/contrib/power/power.h
+@@ -2,6 +2,9 @@
+  *               2019 Rogerio Alves    <rogerio.alves@ibm.com>, IBM
+  * For conditions of distribution and use, see copyright notice in zlib.h
+  */
++#include "../../deflate.h"
+ #include "../../zutil.h"
+ 
+ uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
++
++uInt _longest_match_power9(deflate_state *s, IPos cur_match);
+diff --git a/deflate.c b/deflate.c
+index 1ec7614..1e3aa18 100644
+--- a/deflate.c
++++ b/deflate.c
+@@ -1233,6 +1233,14 @@ local void lm_init (s)
+ /* For 80x86 and 680x0, an optimized version will be provided in match.asm or
+  * match.S. The code will be functionally equivalent.
+  */
++
++#ifdef Z_POWER_OPT
++/* Rename function so resolver can use its symbol. The default version will be
++ * returned by the resolver if the host has no support for an optimized version.
++ */
++#define longest_match longest_match_default
++#endif /* Z_POWER_OPT */
++
+ local uInt longest_match(s, cur_match)
+     deflate_state *s;
+     IPos cur_match;                             /* current match */
+@@ -1377,6 +1385,11 @@ local uInt longest_match(s, cur_match)
+ }
+ #endif /* ASMV */
+ 
++#ifdef Z_POWER_OPT
++#undef longest_match
++#include "contrib/power/longest_match_resolver.c"
++#endif /* Z_POWER_OPT */
++
+ #else /* FASTEST */
+ 
+ /* ---------------------------------------------------------------------------
+-- 
+2.21.1
+
+
+From be4deadbf504b5990eaa5c7c73637583813c62e2 Mon Sep 17 00:00:00 2001
+From: Matheus Castanho <msc@linux.ibm.com>
+Date: Wed, 27 Nov 2019 10:18:10 -0300
+Subject: [PATCH 5/6] Add optimized slide_hash for Power
+
+Considerable time is spent on deflate.c:slide_hash() during
+deflate. This commit introduces a new slide_hash function that
+uses VSX vector instructions to slide 8 hash elements at a time,
+instead of just one as the standard code does.
+
+The choice between the optimized and default versions is made only
+on the first call to the function, enabling a fallback to standard
+behavior if the host processor does not support VSX instructions,
+so the same binary can be used for multiple Power processor
+versions.
+
+Author: Matheus Castanho <msc@linux.ibm.com>
+---
+ CMakeLists.txt                      |  4 +-
+ Makefile.in                         |  8 ++++
+ configure                           |  4 +-
+ contrib/power/power.h               |  2 +
+ contrib/power/slide_hash_power8.c   | 70 +++++++++++++++++++++++++++++
+ contrib/power/slide_hash_resolver.c | 15 +++++++
+ deflate.c                           | 12 +++++
+ 7 files changed, 112 insertions(+), 3 deletions(-)
+ create mode 100644 contrib/power/slide_hash_power8.c
+ create mode 100644 contrib/power/slide_hash_resolver.c
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a52fa6c..65e80b0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -184,7 +184,9 @@ if(CMAKE_COMPILER_IS_GNUCC)
+ 
+             if(POWER8)
+                 add_definitions(-DZ_POWER8)
+-                set(ZLIB_POWER8 contrib/power/adler32_power8.c)
++                set(ZLIB_POWER8
++                    contrib/power/adler32_power8.c
++                    contrib/power/slide_hash_power8.c)
+ 
+                 set_source_files_properties(
+                     ${ZLIB_POWER8}
+diff --git a/Makefile.in b/Makefile.in
+index 8b407ae..be0cc94 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -177,6 +177,9 @@ deflate.o: $(SRCDIR)deflate.c
+ longest_match_power9.o: $(SRCDIR)contrib/power/longest_match_power9.c
+ 	$(CC) $(CFLAGS) -mcpu=power9 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/longest_match_power9.c
+ 
++slide_hash_power8.o: $(SRCDIR)contrib/power/slide_hash_power8.c
++	$(CC) $(CFLAGS) -mcpu=power8 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/slide_hash_power8.c
++
+ infback.o: $(SRCDIR)infback.c
+ 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)infback.c
+ 
+@@ -239,6 +242,11 @@ longest_match_power9.lo: $(SRCDIR)contrib/power/longest_match_power9.c
+ 	$(CC) $(SFLAGS) -mcpu=power9 $(ZINC) -DPIC -c -o objs/longest_match_power9.o $(SRCDIR)contrib/power/longest_match_power9.c
+ 	-@mv objs/longest_match_power9.o $@
+ 
++slide_hash_power8.lo: $(SRCDIR)contrib/power/slide_hash_power8.c
++	-@mkdir objs 2>/dev/null || test -d objs
++	$(CC) $(SFLAGS) -mcpu=power8 $(ZINC) -DPIC -c -o objs/slide_hash_power8.o $(SRCDIR)contrib/power/slide_hash_power8.c
++	-@mv objs/slide_hash_power8.o $@
++
+ infback.lo: $(SRCDIR)infback.c
+ 	-@mkdir objs 2>/dev/null || test -d objs
+ 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/infback.o $(SRCDIR)infback.c
+diff --git a/configure b/configure
+index 2b90134..3f741ab 100755
+--- a/configure
++++ b/configure
+@@ -869,8 +869,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
+ 
+   if tryboth $CC -c $CFLAGS -mcpu=power8 $test.c; then
+     POWER8="-DZ_POWER8"
+-    PIC_OBJC="${PIC_OBJC} adler32_power8.lo"
+-    OBJC="${OBJC} adler32_power8.o"
++    PIC_OBJC="${PIC_OBJC} adler32_power8.lo slide_hash_power8.lo"
++    OBJC="${OBJC} adler32_power8.o slide_hash_power8.o"
+     echo "Checking for -mcpu=power8 support... Yes." | tee -a configure.log
+   else
+     echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
+diff --git a/contrib/power/power.h b/contrib/power/power.h
+index 39f209f..4d36098 100644
+--- a/contrib/power/power.h
++++ b/contrib/power/power.h
+@@ -8,3 +8,5 @@
+ uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
+ 
+ uInt _longest_match_power9(deflate_state *s, IPos cur_match);
++
++void _slide_hash_power8(deflate_state *s);
+diff --git a/contrib/power/slide_hash_power8.c b/contrib/power/slide_hash_power8.c
+new file mode 100644
+index 0000000..770e803
+--- /dev/null
++++ b/contrib/power/slide_hash_power8.c
+@@ -0,0 +1,70 @@
++ /* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
++  * For conditions of distribution and use, see copyright notice in zlib.h
++  */
++
++#include <altivec.h>
++#include "../../deflate.h"
++
++local inline void slide_hash_power8_loop OF((deflate_state *s,
++      unsigned n_elems, Posf *table_end)) __attribute__((always_inline));
++
++local void slide_hash_power8_loop(
++    deflate_state *s,
++    unsigned n_elems,
++    Posf *table_end)
++{
++    vector unsigned short vw, vm, vc, vs, *vp;
++    const vector unsigned short v0 = {0};
++    unsigned chunks;
++
++    /* Each vector register (chunk) corresponds to 128 bits == 8 Posf,
++     * so instead of processing each of the n_elems in the hash table
++     * individually, we can do it in chunks of 8 with vector instructions.
++     *
++     * This function is only called from slide_hash_power8(), and both calls
++     * pass n_elems as a power of 2 higher than 2^7, as defined by
++     * deflateInit2_(), so n_elems will always be a multiple of 8. */
++    chunks = n_elems >> 3;
++    Assert(n_elems % 8 == 0, "Weird hash table size!");
++
++    /* This type casting is safe since s->w_size is always <= 64KB
++     * as defined by deflateInit2_() and Posf == unsigned short */
++    vw[0] = (Posf) s->w_size;
++    vw = vec_splat(vw,0);
++
++    vp = (vector unsigned short *) table_end;
++
++    do {
++        /* Processing 8 elements at a time */
++        vp--;
++        vm = *vp;
++
++        /* m < s->w_size ? */
++        vc = (vector unsigned short) vec_cmplt(vm,vw);
++
++        /* calculate (m - s->w_size)
++         * Overflowed results will be discarded later  */
++        vs = vec_sub(vm,vw);
++
++        /* Choose 0 or (m - s->w_size) based on comparison */
++        vm = vec_sel(vs,v0,vc);
++
++        *vp = vm;
++    } while (--chunks);
++};
++
++void ZLIB_INTERNAL _slide_hash_power8(deflate_state *s)
++{
++    unsigned n;
++    Posf *p;
++
++    n = s->hash_size;
++    p = &s->head[n];
++    slide_hash_power8_loop(s,n,p);
++
++#ifndef FASTEST
++    n = s->w_size;
++    p = &s->prev[n];
++    slide_hash_power8_loop(s,n,p);
++#endif
++}
+diff --git a/contrib/power/slide_hash_resolver.c b/contrib/power/slide_hash_resolver.c
+new file mode 100644
+index 0000000..54fa1eb
+--- /dev/null
++++ b/contrib/power/slide_hash_resolver.c
+@@ -0,0 +1,15 @@
++/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++#include "../gcc/zifunc.h"
++#include "power.h"
++
++Z_IFUNC(slide_hash) {
++#ifdef Z_POWER8
++    if (__builtin_cpu_supports("arch_2_07"))
++        return _slide_hash_power8;
++#endif
++
++    return slide_hash_default;
++}
+diff --git a/deflate.c b/deflate.c
+index 1e3aa18..4f8024d 100644
+--- a/deflate.c
++++ b/deflate.c
+@@ -193,6 +193,13 @@ local const config configuration_table[10] = {
+     s->head[s->hash_size-1] = NIL; \
+     zmemzero((Bytef *)s->head, (unsigned)(s->hash_size-1)*sizeof(*s->head));
+ 
++#ifdef Z_POWER_OPT
++/* Rename function so resolver can use its symbol. The default version will be
++ * returned by the resolver if the host has no support for an optimized version.
++ */
++#define slide_hash slide_hash_default
++#endif /* Z_POWER_OPT */
++
+ /* ===========================================================================
+  * Slide the hash table when sliding the window down (could be avoided with 32
+  * bit values at the expense of memory usage). We slide even when level == 0 to
+@@ -224,6 +231,11 @@ local void slide_hash(s)
+ #endif
+ }
+ 
++#ifdef Z_POWER_OPT
++#undef slide_hash
++#include "contrib/power/slide_hash_resolver.c"
++#endif /* Z_POWER_OPT */
++
+ /* ========================================================================= */
+ int ZEXPORT deflateInit_(strm, level, version, stream_size)
+     z_streamp strm;
+-- 
+2.21.1
+
+
+From 37983b9b45737b8de03880f59e193d12ebd6ffbf Mon Sep 17 00:00:00 2001
+From: Daniel Black <daniel@linux.vnet.ibm.com>
+Date: Wed, 10 Jan 2018 10:50:39 +1100
+Subject: [PATCH 6/6] Add Power8+ optimized crc32
+
+This commit adds an optimized version for the crc32 function based
+on crc32-vpmsum from https://github.com/antonblanchard/crc32-vpmsum/
+
+This is the C implementation created by Rogerio Alves <rogealve@br.ibm.com>
+
+It makes use of vector instructions to speed up CRC32 algorithm.
+---
+ .gitignore                       |    3 +
+ CMakeLists.txt                   |    5 +
+ Makefile.in                      |   44 +-
+ configure                        |    6 +-
+ contrib/README.contrib           |    3 +-
+ contrib/power/clang_workaround.h |   82 ++
+ contrib/power/crc32_constants.h  | 1206 ++++++++++++++++++++++++++++++
+ contrib/power/crc32_z_power8.c   |  679 +++++++++++++++++
+ contrib/power/crc32_z_resolver.c |   15 +
+ contrib/power/power.h            |    4 +
+ crc32.c                          |   15 +
+ test/crc32_test.c                |  205 +++++
+ 12 files changed, 2253 insertions(+), 14 deletions(-)
+ create mode 100644 contrib/power/clang_workaround.h
+ create mode 100644 contrib/power/crc32_constants.h
+ create mode 100644 contrib/power/crc32_z_power8.c
+ create mode 100644 contrib/power/crc32_z_resolver.c
+ create mode 100644 test/crc32_test.c
+
+diff --git a/.gitignore b/.gitignore
+index 8a92894..123807c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -16,6 +16,9 @@
+ /adler32_test
+ /adler32_test64
+ /adler32_testsh
++/crc32_test
++/crc32_test64
++/crc32_testsh
+ /example
+ /example64
+ /examplesh
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 65e80b0..5671289 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -186,6 +186,7 @@ if(CMAKE_COMPILER_IS_GNUCC)
+                 add_definitions(-DZ_POWER8)
+                 set(ZLIB_POWER8
+                     contrib/power/adler32_power8.c
++                    contrib/power/crc32_z_power8.c
+                     contrib/power/slide_hash_power8.c)
+ 
+                 set_source_files_properties(
+@@ -308,6 +309,10 @@ add_executable(example test/example.c)
+ target_link_libraries(example zlib)
+ add_test(example example)
+ 
++add_executable(crc32_test test/crc32_test.c)
++target_link_libraries(crc32_test zlib)
++add_test(crc32_test crc32_test)
++
+ add_executable(minigzip test/minigzip.c)
+ target_link_libraries(minigzip zlib)
+ 
+diff --git a/Makefile.in b/Makefile.in
+index be0cc94..a9398fe 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -75,11 +75,11 @@ PIC_OBJS = $(PIC_OBJC) $(PIC_OBJA)
+ 
+ all: static shared
+ 
+-static: adler32_test$(EXE) example$(EXE) minigzip$(EXE)
++static: adler32_test$(EXE) crc32_test$(EXE) example$(EXE) minigzip$(EXE)
+ 
+-shared: adler32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE)
++shared: adler32_testsh$(EXE) crc32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE)
+ 
+-all64: adler32_test64$(EXE) example64$(EXE) minigzip64$(EXE)
++all64: adler32_test64$(EXE) crc32_test64$(EXE) example64$(EXE) minigzip64$(EXE)
+ 
+ check: test
+ 
+@@ -87,7 +87,7 @@ test: all teststatic testshared
+ 
+ teststatic: static
+ 	@TMPST=tmpst_$$; \
+-	if echo hello world | ./minigzip | ./minigzip -d && ./example $$TMPST && ./adler32_test; then \
++	if echo hello world | ./minigzip | ./minigzip -d && ./example $$TMPST && ./adler32_test && ./crc32_test; then \
+ 	  echo '		*** zlib test OK ***'; \
+ 	else \
+ 	  echo '		*** zlib test FAILED ***'; false; \
+@@ -100,7 +100,7 @@ testshared: shared
+ 	DYLD_LIBRARY_PATH=`pwd`:$(DYLD_LIBRARY_PATH) ; export DYLD_LIBRARY_PATH; \
+ 	SHLIB_PATH=`pwd`:$(SHLIB_PATH) ; export SHLIB_PATH; \
+ 	TMPSH=tmpsh_$$; \
+-	if echo hello world | ./minigzipsh | ./minigzipsh -d && ./examplesh $$TMPSH && ./adler32_testsh; then \
++	if echo hello world | ./minigzipsh | ./minigzipsh -d && ./examplesh $$TMPSH && ./adler32_testsh && ./crc32_testsh; then \
+ 	  echo '		*** zlib shared test OK ***'; \
+ 	else \
+ 	  echo '		*** zlib shared test FAILED ***'; false; \
+@@ -109,7 +109,7 @@ testshared: shared
+ 
+ test64: all64
+ 	@TMP64=tmp64_$$; \
+-	if echo hello world | ./minigzip64 | ./minigzip64 -d && ./example64 $$TMP64 && ./adler32_test64; then \
++	if echo hello world | ./minigzip64 | ./minigzip64 -d && ./example64 $$TMP64 && ./adler32_test64 && ./crc32_test64; then \
+ 	  echo '		*** zlib 64-bit test OK ***'; \
+ 	else \
+ 	  echo '		*** zlib 64-bit test FAILED ***'; false; \
+@@ -146,6 +146,9 @@ match.lo: match.S
+ adler32_test.o: $(SRCDIR)test/adler32_test.c $(SRCDIR)zlib.h zconf.h
+ 	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/adler32_test.c
+ 
++crc32_test.o: $(SRCDIR)test/crc32_test.c $(SRCDIR)zlib.h zconf.h
++	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/crc32_test.c
++
+ example.o: $(SRCDIR)test/example.c $(SRCDIR)zlib.h zconf.h
+ 	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/example.c
+ 
+@@ -155,6 +158,9 @@ minigzip.o: $(SRCDIR)test/minigzip.c $(SRCDIR)zlib.h zconf.h
+ adler32_test64.o: $(SRCDIR)test/adler32_test.c $(SRCDIR)zlib.h zconf.h
+ 	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/adler32_test.c
+ 
++crc32_test64.o: $(SRCDIR)test/crc32_test.c $(SRCDIR)zlib.h zconf.h
++	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/crc32_test.c
++
+ example64.o: $(SRCDIR)test/example.c $(SRCDIR)zlib.h zconf.h
+ 	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/example.c
+ 
+@@ -171,6 +177,9 @@ adler32_power8.o: $(SRCDIR)contrib/power/adler32_power8.c
+ crc32.o: $(SRCDIR)crc32.c
+ 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)crc32.c
+ 
++crc32_z_power8.o: $(SRCDIR)contrib/power/crc32_z_power8.c
++	$(CC) $(CFLAGS) -mcpu=power8 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/crc32_z_power8.c
++
+ deflate.o: $(SRCDIR)deflate.c
+ 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)deflate.c
+ 
+@@ -232,6 +241,11 @@ crc32.lo: $(SRCDIR)crc32.c
+ 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/crc32.o $(SRCDIR)crc32.c
+ 	-@mv objs/crc32.o $@
+ 
++crc32_z_power8.lo: $(SRCDIR)contrib/power/crc32_z_power8.c
++	-@mkdir objs 2>/dev/null || test -d objs
++	$(CC) $(SFLAGS) -mcpu=power8 $(ZINC) -DPIC -c -o objs/crc32_z_power8.o $(SRCDIR)contrib/power/crc32_z_power8.c
++	-@mv objs/crc32_z_power8.o $@
++
+ deflate.lo: $(SRCDIR)deflate.c
+ 	-@mkdir objs 2>/dev/null || test -d objs
+ 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/deflate.o $(SRCDIR)deflate.c
+@@ -318,6 +332,9 @@ placebo $(SHAREDLIBV): $(PIC_OBJS) libz.a
+ adler32_test$(EXE): adler32_test.o $(STATICLIB)
+ 	$(CC) $(CFLAGS) -o $@ adler32_test.o $(TEST_LDFLAGS)
+ 
++crc32_test$(EXE): crc32_test.o $(STATICLIB)
++	$(CC) $(CFLAGS) -o $@ crc32_test.o $(TEST_LDFLAGS)
++
+ example$(EXE): example.o $(STATICLIB)
+ 	$(CC) $(CFLAGS) -o $@ example.o $(TEST_LDFLAGS)
+ 
+@@ -327,6 +344,9 @@ minigzip$(EXE): minigzip.o $(STATICLIB)
+ adler32_testsh$(EXE): adler32_test.o $(SHAREDLIBV)
+ 	$(CC) $(CFLAGS) -o $@ adler32_test.o -L. $(SHAREDLIBV)
+ 
++crc32_testsh$(EXE): crc32_test.o $(SHAREDLIBV)
++	$(CC) $(CFLAGS) -o $@ crc32_test.o -L. $(SHAREDLIBV)
++
+ examplesh$(EXE): example.o $(SHAREDLIBV)
+ 	$(CC) $(CFLAGS) -o $@ example.o -L. $(SHAREDLIBV)
+ 
+@@ -336,6 +356,9 @@ minigzipsh$(EXE): minigzip.o $(SHAREDLIBV)
+ adler32_test64$(EXE): adler32_test64.o $(STATICLIB)
+ 	$(CC) $(CFLAGS) -o $@ adler32_test64.o $(TEST_LDFLAGS)
+ 
++crc32_test64$(EXE): crc32_test64.o $(STATICLIB)
++	$(CC) $(CFLAGS) -o $@ crc32_test64.o $(TEST_LDFLAGS)
++
+ example64$(EXE): example64.o $(STATICLIB)
+ 	$(CC) $(CFLAGS) -o $@ example64.o $(TEST_LDFLAGS)
+ 
+@@ -405,8 +428,9 @@ zconf: $(SRCDIR)zconf.h.in
+ mostlyclean: clean
+ clean:
+ 	rm -f *.o *.lo *~ \
+-	   adler32_test$(EXE) example$(EXE) minigzip$(EXE) adler32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
+-	   adler32_test64$(EXE) example64$(EXE) minigzip64$(EXE) \
++	   adler32_test$(EXE) crc32_test$(EXE) example$(EXE) minigzip$(EXE) \
++     adler32_testsh$(EXE) crc32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
++	   adler32_test64$(EXE) crc32_test64$(EXE) example64$(EXE) minigzip64$(EXE) \
+ 	   infcover \
+ 	   libz.* foo.gz so_locations \
+ 	   _match.s maketree contrib/infback9/*.o
+@@ -430,7 +454,7 @@ tags:
+ 
+ adler32.o adler32_test.o zutil.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
+ gzclose.o gzlib.o gzread.o gzwrite.o: $(SRCDIR)zlib.h zconf.h $(SRCDIR)gzguts.h
+-compress.o example.o minigzip.o uncompr.o: $(SRCDIR)zlib.h zconf.h
++compress.o crc32_test.o example.o minigzip.o uncompr.o: $(SRCDIR)zlib.h zconf.h
+ crc32.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)crc32.h
+ deflate.o: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
+ infback.o inflate.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h $(SRCDIR)inflate.h $(SRCDIR)inffast.h $(SRCDIR)inffixed.h
+@@ -440,7 +464,7 @@ trees.o: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)tr
+ 
+ adler32.lo adler32_test.lo zutil.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
+ gzclose.lo gzlib.lo gzread.lo gzwrite.lo: $(SRCDIR)zlib.h zconf.h $(SRCDIR)gzguts.h
+-compress.lo example.lo minigzip.lo uncompr.lo: $(SRCDIR)zlib.h zconf.h
++compress.lo crc32_test.lo example.lo minigzip.lo uncompr.lo: $(SRCDIR)zlib.h zconf.h
+ crc32.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)crc32.h
+ deflate.lo: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
+ infback.lo inflate.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h $(SRCDIR)inflate.h $(SRCDIR)inffast.h $(SRCDIR)inffixed.h
+diff --git a/configure b/configure
+index 3f741ab..d2729bc 100755
+--- a/configure
++++ b/configure
+@@ -869,9 +869,9 @@ if tryboth $CC -c $CFLAGS $test.c; then
+ 
+   if tryboth $CC -c $CFLAGS -mcpu=power8 $test.c; then
+     POWER8="-DZ_POWER8"
+-    PIC_OBJC="${PIC_OBJC} adler32_power8.lo slide_hash_power8.lo"
+-    OBJC="${OBJC} adler32_power8.o slide_hash_power8.o"
+-    echo "Checking for -mcpu=power8 support... Yes." | tee -a configure.log
++    PIC_OBJC="${PIC_OBJC} adler32_power8.lo crc32_z_power8.lo slide_hash_power8.lo"
++    OBJC="${OBJC} adler32_power8.o crc32_z_power8.o slide_hash_power8.o"
++    echo "Checking for -mcpu=power8 support... Yes." | tee -a configurelog
+   else
+     echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
+   fi
+diff --git a/contrib/README.contrib b/contrib/README.contrib
+index 0dda15b..2ea5a0d 100644
+--- a/contrib/README.contrib
++++ b/contrib/README.contrib
+@@ -67,7 +67,8 @@ minizip/    by Gilles Vollant <info@winimage.com>
+ pascal/     by Bob Dellaca <bobdl@xtra.co.nz> et al.
+         Support for Pascal
+ 
+-power/      by Matheus Castanho <msc@linux.ibm.com>
++power/      by Daniel Black <daniel@linux.ibm.com>
++               Matheus Castanho <msc@linux.ibm.com>
+             and Rogerio Alves <rcardoso@linux.ibm.com>
+         Optimized functions for Power processors
+ 
+diff --git a/contrib/power/clang_workaround.h b/contrib/power/clang_workaround.h
+new file mode 100644
+index 0000000..b5e7dae
+--- /dev/null
++++ b/contrib/power/clang_workaround.h
+@@ -0,0 +1,82 @@
++#ifndef CLANG_WORKAROUNDS_H
++#define CLANG_WORKAROUNDS_H
++
++/*
++ * These stubs fix clang incompatibilities with GCC builtins.
++ */
++
++#ifndef __builtin_crypto_vpmsumw
++#define __builtin_crypto_vpmsumw __builtin_crypto_vpmsumb
++#endif
++#ifndef __builtin_crypto_vpmsumd
++#define __builtin_crypto_vpmsumd __builtin_crypto_vpmsumb
++#endif
++
++static inline
++__vector unsigned long long __attribute__((overloadable))
++vec_ld(int __a, const __vector unsigned long long* __b)
++{
++	return (__vector unsigned long long)__builtin_altivec_lvx(__a, __b);
++}
++
++/*
++ * GCC __builtin_pack_vector_int128 returns a vector __int128_t but Clang
++ * does not recognize this type. On GCC this builtin is translated to a
++ * xxpermdi instruction that only moves the registers __a, __b instead generates
++ * a load.
++ *
++ * Clang has vec_xxpermdi intrinsics. It was implemented in 4.0.0.
++ */
++static inline
++__vector unsigned long long  __builtin_pack_vector (unsigned long __a,
++						    unsigned long __b)
++{
++	#if defined(__BIG_ENDIAN__)
++	__vector unsigned long long __v = {__a, __b};
++	#else
++	__vector unsigned long long __v = {__b, __a};
++	#endif
++	return __v;
++}
++
++#ifndef vec_xxpermdi
++
++static inline
++unsigned long __builtin_unpack_vector (__vector unsigned long long __v,
++				       int __o)
++{
++	return __v[__o];
++}
++
++#if defined(__BIG_ENDIAN__)
++#define __builtin_unpack_vector_0(a) __builtin_unpack_vector ((a), 0)
++#define __builtin_unpack_vector_1(a) __builtin_unpack_vector ((a), 1)
++#else
++#define __builtin_unpack_vector_0(a) __builtin_unpack_vector ((a), 1)
++#define __builtin_unpack_vector_1(a) __builtin_unpack_vector ((a), 0)
++#endif
++
++#else
++
++static inline
++unsigned long __builtin_unpack_vector_0 (__vector unsigned long long __v)
++{
++	#if defined(__BIG_ENDIAN__)
++	return vec_xxpermdi(__v, __v, 0x0)[1];
++	#else
++	return vec_xxpermdi(__v, __v, 0x0)[0];
++	#endif
++}
++
++static inline
++unsigned long __builtin_unpack_vector_1 (__vector unsigned long long __v)
++{
++	#if defined(__BIG_ENDIAN__)
++	return vec_xxpermdi(__v, __v, 0x3)[1];
++	#else
++	return vec_xxpermdi(__v, __v, 0x3)[0];
++	#endif
++}
++#endif /* vec_xxpermdi */
++
++#endif
+diff --git a/contrib/power/crc32_constants.h b/contrib/power/crc32_constants.h
+new file mode 100644
+index 0000000..58088dc
+--- /dev/null
++++ b/contrib/power/crc32_constants.h
+@@ -0,0 +1,1206 @@
++/*
++*
++* THIS FILE IS GENERATED WITH
++./crc32_constants -c -r -x 0x04C11DB7 
++
++* This is from https://github.com/antonblanchard/crc32-vpmsum/
++* DO NOT MODIFY IT MANUALLY!
++*
++*/
++
++#define CRC 0x4c11db7
++#define CRC_XOR
++#define REFLECT
++#define MAX_SIZE    32768
++
++#ifndef __ASSEMBLER__
++#ifdef CRC_TABLE
++static const unsigned int crc_table[] = {
++	0x00000000, 0x77073096, 0xee0e612c, 0x990951ba,
++	0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
++	0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988,
++	0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91,
++	0x1db71064, 0x6ab020f2, 0xf3b97148, 0x84be41de,
++	0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7,
++	0x136c9856, 0x646ba8c0, 0xfd62f97a, 0x8a65c9ec,
++	0x14015c4f, 0x63066cd9, 0xfa0f3d63, 0x8d080df5,
++	0x3b6e20c8, 0x4c69105e, 0xd56041e4, 0xa2677172,
++	0x3c03e4d1, 0x4b04d447, 0xd20d85fd, 0xa50ab56b,
++	0x35b5a8fa, 0x42b2986c, 0xdbbbc9d6, 0xacbcf940,
++	0x32d86ce3, 0x45df5c75, 0xdcd60dcf, 0xabd13d59,
++	0x26d930ac, 0x51de003a, 0xc8d75180, 0xbfd06116,
++	0x21b4f4b5, 0x56b3c423, 0xcfba9599, 0xb8bda50f,
++	0x2802b89e, 0x5f058808, 0xc60cd9b2, 0xb10be924,
++	0x2f6f7c87, 0x58684c11, 0xc1611dab, 0xb6662d3d,
++	0x76dc4190, 0x01db7106, 0x98d220bc, 0xefd5102a,
++	0x71b18589, 0x06b6b51f, 0x9fbfe4a5, 0xe8b8d433,
++	0x7807c9a2, 0x0f00f934, 0x9609a88e, 0xe10e9818,
++	0x7f6a0dbb, 0x086d3d2d, 0x91646c97, 0xe6635c01,
++	0x6b6b51f4, 0x1c6c6162, 0x856530d8, 0xf262004e,
++	0x6c0695ed, 0x1b01a57b, 0x8208f4c1, 0xf50fc457,
++	0x65b0d9c6, 0x12b7e950, 0x8bbeb8ea, 0xfcb9887c,
++	0x62dd1ddf, 0x15da2d49, 0x8cd37cf3, 0xfbd44c65,
++	0x4db26158, 0x3ab551ce, 0xa3bc0074, 0xd4bb30e2,
++	0x4adfa541, 0x3dd895d7, 0xa4d1c46d, 0xd3d6f4fb,
++	0x4369e96a, 0x346ed9fc, 0xad678846, 0xda60b8d0,
++	0x44042d73, 0x33031de5, 0xaa0a4c5f, 0xdd0d7cc9,
++	0x5005713c, 0x270241aa, 0xbe0b1010, 0xc90c2086,
++	0x5768b525, 0x206f85b3, 0xb966d409, 0xce61e49f,
++	0x5edef90e, 0x29d9c998, 0xb0d09822, 0xc7d7a8b4,
++	0x59b33d17, 0x2eb40d81, 0xb7bd5c3b, 0xc0ba6cad,
++	0xedb88320, 0x9abfb3b6, 0x03b6e20c, 0x74b1d29a,
++	0xead54739, 0x9dd277af, 0x04db2615, 0x73dc1683,
++	0xe3630b12, 0x94643b84, 0x0d6d6a3e, 0x7a6a5aa8,
++	0xe40ecf0b, 0x9309ff9d, 0x0a00ae27, 0x7d079eb1,
++	0xf00f9344, 0x8708a3d2, 0x1e01f268, 0x6906c2fe,
++	0xf762575d, 0x806567cb, 0x196c3671, 0x6e6b06e7,
++	0xfed41b76, 0x89d32be0, 0x10da7a5a, 0x67dd4acc,
++	0xf9b9df6f, 0x8ebeeff9, 0x17b7be43, 0x60b08ed5,
++	0xd6d6a3e8, 0xa1d1937e, 0x38d8c2c4, 0x4fdff252,
++	0xd1bb67f1, 0xa6bc5767, 0x3fb506dd, 0x48b2364b,
++	0xd80d2bda, 0xaf0a1b4c, 0x36034af6, 0x41047a60,
++	0xdf60efc3, 0xa867df55, 0x316e8eef, 0x4669be79,
++	0xcb61b38c, 0xbc66831a, 0x256fd2a0, 0x5268e236,
++	0xcc0c7795, 0xbb0b4703, 0x220216b9, 0x5505262f,
++	0xc5ba3bbe, 0xb2bd0b28, 0x2bb45a92, 0x5cb36a04,
++	0xc2d7ffa7, 0xb5d0cf31, 0x2cd99e8b, 0x5bdeae1d,
++	0x9b64c2b0, 0xec63f226, 0x756aa39c, 0x026d930a,
++	0x9c0906a9, 0xeb0e363f, 0x72076785, 0x05005713,
++	0x95bf4a82, 0xe2b87a14, 0x7bb12bae, 0x0cb61b38,
++	0x92d28e9b, 0xe5d5be0d, 0x7cdcefb7, 0x0bdbdf21,
++	0x86d3d2d4, 0xf1d4e242, 0x68ddb3f8, 0x1fda836e,
++	0x81be16cd, 0xf6b9265b, 0x6fb077e1, 0x18b74777,
++	0x88085ae6, 0xff0f6a70, 0x66063bca, 0x11010b5c,
++	0x8f659eff, 0xf862ae69, 0x616bffd3, 0x166ccf45,
++	0xa00ae278, 0xd70dd2ee, 0x4e048354, 0x3903b3c2,
++	0xa7672661, 0xd06016f7, 0x4969474d, 0x3e6e77db,
++	0xaed16a4a, 0xd9d65adc, 0x40df0b66, 0x37d83bf0,
++	0xa9bcae53, 0xdebb9ec5, 0x47b2cf7f, 0x30b5ffe9,
++	0xbdbdf21c, 0xcabac28a, 0x53b39330, 0x24b4a3a6,
++	0xbad03605, 0xcdd70693, 0x54de5729, 0x23d967bf,
++	0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94,
++	0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d,};
++
++#endif /* CRC_TABLE */
++#ifdef POWER8_INTRINSICS
++
++/* Constants */
++
++/* Reduce 262144 kbits to 1024 bits */
++static const __vector unsigned long long vcrc_const[255]
++	__attribute__((aligned (16))) = {
++#ifdef __LITTLE_ENDIAN__
++		/* x^261120 mod p(x)` << 1, x^261184 mod p(x)` << 1 */
++		{ 0x0000000099ea94a8, 0x00000001651797d2 },
++		/* x^260096 mod p(x)` << 1, x^260160 mod p(x)` << 1 */
++		{ 0x00000000945a8420, 0x0000000021e0d56c },
++		/* x^259072 mod p(x)` << 1, x^259136 mod p(x)` << 1 */
++		{ 0x0000000030762706, 0x000000000f95ecaa },
++		/* x^258048 mod p(x)` << 1, x^258112 mod p(x)` << 1 */
++		{ 0x00000001a52fc582, 0x00000001ebd224ac },
++		/* x^257024 mod p(x)` << 1, x^257088 mod p(x)` << 1 */
++		{ 0x00000001a4a7167a, 0x000000000ccb97ca },
++		/* x^256000 mod p(x)` << 1, x^256064 mod p(x)` << 1 */
++		{ 0x000000000c18249a, 0x00000001006ec8a8 },
++		/* x^254976 mod p(x)` << 1, x^255040 mod p(x)` << 1 */
++		{ 0x00000000a924ae7c, 0x000000014f58f196 },
++		/* x^253952 mod p(x)` << 1, x^254016 mod p(x)` << 1 */
++		{ 0x00000001e12ccc12, 0x00000001a7192ca6 },
++		/* x^252928 mod p(x)` << 1, x^252992 mod p(x)` << 1 */
++		{ 0x00000000a0b9d4ac, 0x000000019a64bab2 },
++		/* x^251904 mod p(x)` << 1, x^251968 mod p(x)` << 1 */
++		{ 0x0000000095e8ddfe, 0x0000000014f4ed2e },
++		/* x^250880 mod p(x)` << 1, x^250944 mod p(x)` << 1 */
++		{ 0x00000000233fddc4, 0x000000011092b6a2 },
++		/* x^249856 mod p(x)` << 1, x^249920 mod p(x)` << 1 */
++		{ 0x00000001b4529b62, 0x00000000c8a1629c },
++		/* x^248832 mod p(x)` << 1, x^248896 mod p(x)` << 1 */
++		{ 0x00000001a7fa0e64, 0x000000017bf32e8e },
++		/* x^247808 mod p(x)` << 1, x^247872 mod p(x)` << 1 */
++		{ 0x00000001b5334592, 0x00000001f8cc6582 },
++		/* x^246784 mod p(x)` << 1, x^246848 mod p(x)` << 1 */
++		{ 0x000000011f8ee1b4, 0x000000008631ddf0 },
++		/* x^245760 mod p(x)` << 1, x^245824 mod p(x)` << 1 */
++		{ 0x000000006252e632, 0x000000007e5a76d0 },
++		/* x^244736 mod p(x)` << 1, x^244800 mod p(x)` << 1 */
++		{ 0x00000000ab973e84, 0x000000002b09b31c },
++		/* x^243712 mod p(x)` << 1, x^243776 mod p(x)` << 1 */
++		{ 0x000000007734f5ec, 0x00000001b2df1f84 },
++		/* x^242688 mod p(x)` << 1, x^242752 mod p(x)` << 1 */
++		{ 0x000000007c547798, 0x00000001d6f56afc },
++		/* x^241664 mod p(x)` << 1, x^241728 mod p(x)` << 1 */
++		{ 0x000000007ec40210, 0x00000001b9b5e70c },
++		/* x^240640 mod p(x)` << 1, x^240704 mod p(x)` << 1 */
++		{ 0x00000001ab1695a8, 0x0000000034b626d2 },
++		/* x^239616 mod p(x)` << 1, x^239680 mod p(x)` << 1 */
++		{ 0x0000000090494bba, 0x000000014c53479a },
++		/* x^238592 mod p(x)` << 1, x^238656 mod p(x)` << 1 */
++		{ 0x00000001123fb816, 0x00000001a6d179a4 },
++		/* x^237568 mod p(x)` << 1, x^237632 mod p(x)` << 1 */
++		{ 0x00000001e188c74c, 0x000000015abd16b4 },
++		/* x^236544 mod p(x)` << 1, x^236608 mod p(x)` << 1 */
++		{ 0x00000001c2d3451c, 0x00000000018f9852 },
++		/* x^235520 mod p(x)` << 1, x^235584 mod p(x)` << 1 */
++		{ 0x00000000f55cf1ca, 0x000000001fb3084a },
++		/* x^234496 mod p(x)` << 1, x^234560 mod p(x)` << 1 */
++		{ 0x00000001a0531540, 0x00000000c53dfb04 },
++		/* x^233472 mod p(x)` << 1, x^233536 mod p(x)` << 1 */
++		{ 0x0000000132cd7ebc, 0x00000000e10c9ad6 },
++		/* x^232448 mod p(x)` << 1, x^232512 mod p(x)` << 1 */
++		{ 0x0000000073ab7f36, 0x0000000025aa994a },
++		/* x^231424 mod p(x)` << 1, x^231488 mod p(x)` << 1 */
++		{ 0x0000000041aed1c2, 0x00000000fa3a74c4 },
++		/* x^230400 mod p(x)` << 1, x^230464 mod p(x)` << 1 */
++		{ 0x0000000136c53800, 0x0000000033eb3f40 },
++		/* x^229376 mod p(x)` << 1, x^229440 mod p(x)` << 1 */
++		{ 0x0000000126835a30, 0x000000017193f296 },
++		/* x^228352 mod p(x)` << 1, x^228416 mod p(x)` << 1 */
++		{ 0x000000006241b502, 0x0000000043f6c86a },
++		/* x^227328 mod p(x)` << 1, x^227392 mod p(x)` << 1 */
++		{ 0x00000000d5196ad4, 0x000000016b513ec6 },
++		/* x^226304 mod p(x)` << 1, x^226368 mod p(x)` << 1 */
++		{ 0x000000009cfa769a, 0x00000000c8f25b4e },
++		/* x^225280 mod p(x)` << 1, x^225344 mod p(x)` << 1 */
++		{ 0x00000000920e5df4, 0x00000001a45048ec },
++		/* x^224256 mod p(x)` << 1, x^224320 mod p(x)` << 1 */
++		{ 0x0000000169dc310e, 0x000000000c441004 },
++		/* x^223232 mod p(x)` << 1, x^223296 mod p(x)` << 1 */
++		{ 0x0000000009fc331c, 0x000000000e17cad6 },
++		/* x^222208 mod p(x)` << 1, x^222272 mod p(x)` << 1 */
++		{ 0x000000010d94a81e, 0x00000001253ae964 },
++		/* x^221184 mod p(x)` << 1, x^221248 mod p(x)` << 1 */
++		{ 0x0000000027a20ab2, 0x00000001d7c88ebc },
++		/* x^220160 mod p(x)` << 1, x^220224 mod p(x)` << 1 */
++		{ 0x0000000114f87504, 0x00000001e7ca913a },
++		/* x^219136 mod p(x)` << 1, x^219200 mod p(x)` << 1 */
++		{ 0x000000004b076d96, 0x0000000033ed078a },
++		/* x^218112 mod p(x)` << 1, x^218176 mod p(x)` << 1 */
++		{ 0x00000000da4d1e74, 0x00000000e1839c78 },
++		/* x^217088 mod p(x)` << 1, x^217152 mod p(x)` << 1 */
++		{ 0x000000001b81f672, 0x00000001322b267e },
++		/* x^216064 mod p(x)` << 1, x^216128 mod p(x)` << 1 */
++		{ 0x000000009367c988, 0x00000000638231b6 },
++		/* x^215040 mod p(x)` << 1, x^215104 mod p(x)` << 1 */
++		{ 0x00000001717214ca, 0x00000001ee7f16f4 },
++		/* x^214016 mod p(x)` << 1, x^214080 mod p(x)` << 1 */
++		{ 0x000000009f47d820, 0x0000000117d9924a },
++		/* x^212992 mod p(x)` << 1, x^213056 mod p(x)` << 1 */
++		{ 0x000000010d9a47d2, 0x00000000e1a9e0c4 },
++		/* x^211968 mod p(x)` << 1, x^212032 mod p(x)` << 1 */
++		{ 0x00000000a696c58c, 0x00000001403731dc },
++		/* x^210944 mod p(x)` << 1, x^211008 mod p(x)` << 1 */
++		{ 0x000000002aa28ec6, 0x00000001a5ea9682 },
++		/* x^209920 mod p(x)` << 1, x^209984 mod p(x)` << 1 */
++		{ 0x00000001fe18fd9a, 0x0000000101c5c578 },
++		/* x^208896 mod p(x)` << 1, x^208960 mod p(x)` << 1 */
++		{ 0x000000019d4fc1ae, 0x00000000dddf6494 },
++		/* x^207872 mod p(x)` << 1, x^207936 mod p(x)` << 1 */
++		{ 0x00000001ba0e3dea, 0x00000000f1c3db28 },
++		/* x^206848 mod p(x)` << 1, x^206912 mod p(x)` << 1 */
++		{ 0x0000000074b59a5e, 0x000000013112fb9c },
++		/* x^205824 mod p(x)` << 1, x^205888 mod p(x)` << 1 */
++		{ 0x00000000f2b5ea98, 0x00000000b680b906 },
++		/* x^204800 mod p(x)` << 1, x^204864 mod p(x)` << 1 */
++		{ 0x0000000187132676, 0x000000001a282932 },
++		/* x^203776 mod p(x)` << 1, x^203840 mod p(x)` << 1 */
++		{ 0x000000010a8c6ad4, 0x0000000089406e7e },
++		/* x^202752 mod p(x)` << 1, x^202816 mod p(x)` << 1 */
++		{ 0x00000001e21dfe70, 0x00000001def6be8c },
++		/* x^201728 mod p(x)` << 1, x^201792 mod p(x)` << 1 */
++		{ 0x00000001da0050e4, 0x0000000075258728 },
++		/* x^200704 mod p(x)` << 1, x^200768 mod p(x)` << 1 */
++		{ 0x00000000772172ae, 0x000000019536090a },
++		/* x^199680 mod p(x)` << 1, x^199744 mod p(x)` << 1 */
++		{ 0x00000000e47724aa, 0x00000000f2455bfc },
++		/* x^198656 mod p(x)` << 1, x^198720 mod p(x)` << 1 */
++		{ 0x000000003cd63ac4, 0x000000018c40baf4 },
++		/* x^197632 mod p(x)` << 1, x^197696 mod p(x)` << 1 */
++		{ 0x00000001bf47d352, 0x000000004cd390d4 },
++		/* x^196608 mod p(x)` << 1, x^196672 mod p(x)` << 1 */
++		{ 0x000000018dc1d708, 0x00000001e4ece95a },
++		/* x^195584 mod p(x)` << 1, x^195648 mod p(x)` << 1 */
++		{ 0x000000002d4620a4, 0x000000001a3ee918 },
++		/* x^194560 mod p(x)` << 1, x^194624 mod p(x)` << 1 */
++		{ 0x0000000058fd1740, 0x000000007c652fb8 },
++		/* x^193536 mod p(x)` << 1, x^193600 mod p(x)` << 1 */
++		{ 0x00000000dadd9bfc, 0x000000011c67842c },
++		/* x^192512 mod p(x)` << 1, x^192576 mod p(x)` << 1 */
++		{ 0x00000001ea2140be, 0x00000000254f759c },
++		/* x^191488 mod p(x)` << 1, x^191552 mod p(x)` << 1 */
++		{ 0x000000009de128ba, 0x000000007ece94ca },
++		/* x^190464 mod p(x)` << 1, x^190528 mod p(x)` << 1 */
++		{ 0x000000013ac3aa8e, 0x0000000038f258c2 },
++		/* x^189440 mod p(x)` << 1, x^189504 mod p(x)` << 1 */
++		{ 0x0000000099980562, 0x00000001cdf17b00 },
++		/* x^188416 mod p(x)` << 1, x^188480 mod p(x)` << 1 */
++		{ 0x00000001c1579c86, 0x000000011f882c16 },
++		/* x^187392 mod p(x)` << 1, x^187456 mod p(x)` << 1 */
++		{ 0x0000000068dbbf94, 0x0000000100093fc8 },
++		/* x^186368 mod p(x)` << 1, x^186432 mod p(x)` << 1 */
++		{ 0x000000004509fb04, 0x00000001cd684f16 },
++		/* x^185344 mod p(x)` << 1, x^185408 mod p(x)` << 1 */
++		{ 0x00000001202f6398, 0x000000004bc6a70a },
++		/* x^184320 mod p(x)` << 1, x^184384 mod p(x)` << 1 */
++		{ 0x000000013aea243e, 0x000000004fc7e8e4 },
++		/* x^183296 mod p(x)` << 1, x^183360 mod p(x)` << 1 */
++		{ 0x00000001b4052ae6, 0x0000000130103f1c },
++		/* x^182272 mod p(x)` << 1, x^182336 mod p(x)` << 1 */
++		{ 0x00000001cd2a0ae8, 0x0000000111b0024c },
++		/* x^181248 mod p(x)` << 1, x^181312 mod p(x)` << 1 */
++		{ 0x00000001fe4aa8b4, 0x000000010b3079da },
++		/* x^180224 mod p(x)` << 1, x^180288 mod p(x)` << 1 */
++		{ 0x00000001d1559a42, 0x000000010192bcc2 },
++		/* x^179200 mod p(x)` << 1, x^179264 mod p(x)` << 1 */
++		{ 0x00000001f3e05ecc, 0x0000000074838d50 },
++		/* x^178176 mod p(x)` << 1, x^178240 mod p(x)` << 1 */
++		{ 0x0000000104ddd2cc, 0x000000001b20f520 },
++		/* x^177152 mod p(x)` << 1, x^177216 mod p(x)` << 1 */
++		{ 0x000000015393153c, 0x0000000050c3590a },
++		/* x^176128 mod p(x)` << 1, x^176192 mod p(x)` << 1 */
++		{ 0x0000000057e942c6, 0x00000000b41cac8e },
++		/* x^175104 mod p(x)` << 1, x^175168 mod p(x)` << 1 */
++		{ 0x000000012c633850, 0x000000000c72cc78 },
++		/* x^174080 mod p(x)` << 1, x^174144 mod p(x)` << 1 */
++		{ 0x00000000ebcaae4c, 0x0000000030cdb032 },
++		/* x^173056 mod p(x)` << 1, x^173120 mod p(x)` << 1 */
++		{ 0x000000013ee532a6, 0x000000013e09fc32 },
++		/* x^172032 mod p(x)` << 1, x^172096 mod p(x)` << 1 */
++		{ 0x00000001bf0cbc7e, 0x000000001ed624d2 },
++		/* x^171008 mod p(x)` << 1, x^171072 mod p(x)` << 1 */
++		{ 0x00000000d50b7a5a, 0x00000000781aee1a },
++		/* x^169984 mod p(x)` << 1, x^170048 mod p(x)` << 1 */
++		{ 0x0000000002fca6e8, 0x00000001c4d8348c },
++		/* x^168960 mod p(x)` << 1, x^169024 mod p(x)` << 1 */
++		{ 0x000000007af40044, 0x0000000057a40336 },
++		/* x^167936 mod p(x)` << 1, x^168000 mod p(x)` << 1 */
++		{ 0x0000000016178744, 0x0000000085544940 },
++		/* x^166912 mod p(x)` << 1, x^166976 mod p(x)` << 1 */
++		{ 0x000000014c177458, 0x000000019cd21e80 },
++		/* x^165888 mod p(x)` << 1, x^165952 mod p(x)` << 1 */
++		{ 0x000000011b6ddf04, 0x000000013eb95bc0 },
++		/* x^164864 mod p(x)` << 1, x^164928 mod p(x)` << 1 */
++		{ 0x00000001f3e29ccc, 0x00000001dfc9fdfc },
++		/* x^163840 mod p(x)` << 1, x^163904 mod p(x)` << 1 */
++		{ 0x0000000135ae7562, 0x00000000cd028bc2 },
++		/* x^162816 mod p(x)` << 1, x^162880 mod p(x)` << 1 */
++		{ 0x0000000190ef812c, 0x0000000090db8c44 },
++		/* x^161792 mod p(x)` << 1, x^161856 mod p(x)` << 1 */
++		{ 0x0000000067a2c786, 0x000000010010a4ce },
++		/* x^160768 mod p(x)` << 1, x^160832 mod p(x)` << 1 */
++		{ 0x0000000048b9496c, 0x00000001c8f4c72c },
++		/* x^159744 mod p(x)` << 1, x^159808 mod p(x)` << 1 */
++		{ 0x000000015a422de6, 0x000000001c26170c },
++		/* x^158720 mod p(x)` << 1, x^158784 mod p(x)` << 1 */
++		{ 0x00000001ef0e3640, 0x00000000e3fccf68 },
++		/* x^157696 mod p(x)` << 1, x^157760 mod p(x)` << 1 */
++		{ 0x00000001006d2d26, 0x00000000d513ed24 },
++		/* x^156672 mod p(x)` << 1, x^156736 mod p(x)` << 1 */
++		{ 0x00000001170d56d6, 0x00000000141beada },
++		/* x^155648 mod p(x)` << 1, x^155712 mod p(x)` << 1 */
++		{ 0x00000000a5fb613c, 0x000000011071aea0 },
++		/* x^154624 mod p(x)` << 1, x^154688 mod p(x)` << 1 */
++		{ 0x0000000040bbf7fc, 0x000000012e19080a },
++		/* x^153600 mod p(x)` << 1, x^153664 mod p(x)` << 1 */
++		{ 0x000000016ac3a5b2, 0x0000000100ecf826 },
++		/* x^152576 mod p(x)` << 1, x^152640 mod p(x)` << 1 */
++		{ 0x00000000abf16230, 0x0000000069b09412 },
++		/* x^151552 mod p(x)` << 1, x^151616 mod p(x)` << 1 */
++		{ 0x00000001ebe23fac, 0x0000000122297bac },
++		/* x^150528 mod p(x)` << 1, x^150592 mod p(x)` << 1 */
++		{ 0x000000008b6a0894, 0x00000000e9e4b068 },
++		/* x^149504 mod p(x)` << 1, x^149568 mod p(x)` << 1 */
++		{ 0x00000001288ea478, 0x000000004b38651a },
++		/* x^148480 mod p(x)` << 1, x^148544 mod p(x)` << 1 */
++		{ 0x000000016619c442, 0x00000001468360e2 },
++		/* x^147456 mod p(x)` << 1, x^147520 mod p(x)` << 1 */
++		{ 0x0000000086230038, 0x00000000121c2408 },
++		/* x^146432 mod p(x)` << 1, x^146496 mod p(x)` << 1 */
++		{ 0x000000017746a756, 0x00000000da7e7d08 },
++		/* x^145408 mod p(x)` << 1, x^145472 mod p(x)` << 1 */
++		{ 0x0000000191b8f8f8, 0x00000001058d7652 },
++		/* x^144384 mod p(x)` << 1, x^144448 mod p(x)` << 1 */
++		{ 0x000000008e167708, 0x000000014a098a90 },
++		/* x^143360 mod p(x)` << 1, x^143424 mod p(x)` << 1 */
++		{ 0x0000000148b22d54, 0x0000000020dbe72e },
++		/* x^142336 mod p(x)` << 1, x^142400 mod p(x)` << 1 */
++		{ 0x0000000044ba2c3c, 0x000000011e7323e8 },
++		/* x^141312 mod p(x)` << 1, x^141376 mod p(x)` << 1 */
++		{ 0x00000000b54d2b52, 0x00000000d5d4bf94 },
++		/* x^140288 mod p(x)` << 1, x^140352 mod p(x)` << 1 */
++		{ 0x0000000005a4fd8a, 0x0000000199d8746c },
++		/* x^139264 mod p(x)` << 1, x^139328 mod p(x)` << 1 */
++		{ 0x0000000139f9fc46, 0x00000000ce9ca8a0 },
++		/* x^138240 mod p(x)` << 1, x^138304 mod p(x)` << 1 */
++		{ 0x000000015a1fa824, 0x00000000136edece },
++		/* x^137216 mod p(x)` << 1, x^137280 mod p(x)` << 1 */
++		{ 0x000000000a61ae4c, 0x000000019b92a068 },
++		/* x^136192 mod p(x)` << 1, x^136256 mod p(x)` << 1 */
++		{ 0x0000000145e9113e, 0x0000000071d62206 },
++		/* x^135168 mod p(x)` << 1, x^135232 mod p(x)` << 1 */
++		{ 0x000000006a348448, 0x00000000dfc50158 },
++		/* x^134144 mod p(x)` << 1, x^134208 mod p(x)` << 1 */
++		{ 0x000000004d80a08c, 0x00000001517626bc },
++		/* x^133120 mod p(x)` << 1, x^133184 mod p(x)` << 1 */
++		{ 0x000000014b6837a0, 0x0000000148d1e4fa },
++		/* x^132096 mod p(x)` << 1, x^132160 mod p(x)` << 1 */
++		{ 0x000000016896a7fc, 0x0000000094d8266e },
++		/* x^131072 mod p(x)` << 1, x^131136 mod p(x)` << 1 */
++		{ 0x000000014f187140, 0x00000000606c5e34 },
++		/* x^130048 mod p(x)` << 1, x^130112 mod p(x)` << 1 */
++		{ 0x000000019581b9da, 0x000000019766beaa },
++		/* x^129024 mod p(x)` << 1, x^129088 mod p(x)` << 1 */
++		{ 0x00000001091bc984, 0x00000001d80c506c },
++		/* x^128000 mod p(x)` << 1, x^128064 mod p(x)` << 1 */
++		{ 0x000000001067223c, 0x000000001e73837c },
++		/* x^126976 mod p(x)` << 1, x^127040 mod p(x)` << 1 */
++		{ 0x00000001ab16ea02, 0x0000000064d587de },
++		/* x^125952 mod p(x)` << 1, x^126016 mod p(x)` << 1 */
++		{ 0x000000013c4598a8, 0x00000000f4a507b0 },
++		/* x^124928 mod p(x)` << 1, x^124992 mod p(x)` << 1 */
++		{ 0x00000000b3735430, 0x0000000040e342fc },
++		/* x^123904 mod p(x)` << 1, x^123968 mod p(x)` << 1 */
++		{ 0x00000001bb3fc0c0, 0x00000001d5ad9c3a },
++		/* x^122880 mod p(x)` << 1, x^122944 mod p(x)` << 1 */
++		{ 0x00000001570ae19c, 0x0000000094a691a4 },
++		/* x^121856 mod p(x)` << 1, x^121920 mod p(x)` << 1 */
++		{ 0x00000001ea910712, 0x00000001271ecdfa },
++		/* x^120832 mod p(x)` << 1, x^120896 mod p(x)` << 1 */
++		{ 0x0000000167127128, 0x000000009e54475a },
++		/* x^119808 mod p(x)` << 1, x^119872 mod p(x)` << 1 */
++		{ 0x0000000019e790a2, 0x00000000c9c099ee },
++		/* x^118784 mod p(x)` << 1, x^118848 mod p(x)` << 1 */
++		{ 0x000000003788f710, 0x000000009a2f736c },
++		/* x^117760 mod p(x)` << 1, x^117824 mod p(x)` << 1 */
++		{ 0x00000001682a160e, 0x00000000bb9f4996 },
++		/* x^116736 mod p(x)` << 1, x^116800 mod p(x)` << 1 */
++		{ 0x000000007f0ebd2e, 0x00000001db688050 },
++		/* x^115712 mod p(x)` << 1, x^115776 mod p(x)` << 1 */
++		{ 0x000000002b032080, 0x00000000e9b10af4 },
++		/* x^114688 mod p(x)` << 1, x^114752 mod p(x)` << 1 */
++		{ 0x00000000cfd1664a, 0x000000012d4545e4 },
++		/* x^113664 mod p(x)` << 1, x^113728 mod p(x)` << 1 */
++		{ 0x00000000aa1181c2, 0x000000000361139c },
++		/* x^112640 mod p(x)` << 1, x^112704 mod p(x)` << 1 */
++		{ 0x00000000ddd08002, 0x00000001a5a1a3a8 },
++		/* x^111616 mod p(x)` << 1, x^111680 mod p(x)` << 1 */
++		{ 0x00000000e8dd0446, 0x000000006844e0b0 },
++		/* x^110592 mod p(x)` << 1, x^110656 mod p(x)` << 1 */
++		{ 0x00000001bbd94a00, 0x00000000c3762f28 },
++		/* x^109568 mod p(x)` << 1, x^109632 mod p(x)` << 1 */
++		{ 0x00000000ab6cd180, 0x00000001d26287a2 },
++		/* x^108544 mod p(x)` << 1, x^108608 mod p(x)` << 1 */
++		{ 0x0000000031803ce2, 0x00000001f6f0bba8 },
++		/* x^107520 mod p(x)` << 1, x^107584 mod p(x)` << 1 */
++		{ 0x0000000024f40b0c, 0x000000002ffabd62 },
++		/* x^106496 mod p(x)` << 1, x^106560 mod p(x)` << 1 */
++		{ 0x00000001ba1d9834, 0x00000000fb4516b8 },
++		/* x^105472 mod p(x)` << 1, x^105536 mod p(x)` << 1 */
++		{ 0x0000000104de61aa, 0x000000018cfa961c },
++		/* x^104448 mod p(x)` << 1, x^104512 mod p(x)` << 1 */
++		{ 0x0000000113e40d46, 0x000000019e588d52 },
++		/* x^103424 mod p(x)` << 1, x^103488 mod p(x)` << 1 */
++		{ 0x00000001415598a0, 0x00000001180f0bbc },
++		/* x^102400 mod p(x)` << 1, x^102464 mod p(x)` << 1 */
++		{ 0x00000000bf6c8c90, 0x00000000e1d9177a },
++		/* x^101376 mod p(x)` << 1, x^101440 mod p(x)` << 1 */
++		{ 0x00000001788b0504, 0x0000000105abc27c },
++		/* x^100352 mod p(x)` << 1, x^100416 mod p(x)` << 1 */
++		{ 0x0000000038385d02, 0x00000000972e4a58 },
++		/* x^99328 mod p(x)` << 1, x^99392 mod p(x)` << 1 */
++		{ 0x00000001b6c83844, 0x0000000183499a5e },
++		/* x^98304 mod p(x)` << 1, x^98368 mod p(x)` << 1 */
++		{ 0x0000000051061a8a, 0x00000001c96a8cca },
++		/* x^97280 mod p(x)` << 1, x^97344 mod p(x)` << 1 */
++		{ 0x000000017351388a, 0x00000001a1a5b60c },
++		/* x^96256 mod p(x)` << 1, x^96320 mod p(x)` << 1 */
++		{ 0x0000000132928f92, 0x00000000e4b6ac9c },
++		/* x^95232 mod p(x)` << 1, x^95296 mod p(x)` << 1 */
++		{ 0x00000000e6b4f48a, 0x00000001807e7f5a },
++		/* x^94208 mod p(x)` << 1, x^94272 mod p(x)` << 1 */
++		{ 0x0000000039d15e90, 0x000000017a7e3bc8 },
++		/* x^93184 mod p(x)` << 1, x^93248 mod p(x)` << 1 */
++		{ 0x00000000312d6074, 0x00000000d73975da },
++		/* x^92160 mod p(x)` << 1, x^92224 mod p(x)` << 1 */
++		{ 0x000000017bbb2cc4, 0x000000017375d038 },
++		/* x^91136 mod p(x)` << 1, x^91200 mod p(x)` << 1 */
++		{ 0x000000016ded3e18, 0x00000000193680bc },
++		/* x^90112 mod p(x)` << 1, x^90176 mod p(x)` << 1 */
++		{ 0x00000000f1638b16, 0x00000000999b06f6 },
++		/* x^89088 mod p(x)` << 1, x^89152 mod p(x)` << 1 */
++		{ 0x00000001d38b9ecc, 0x00000001f685d2b8 },
++		/* x^88064 mod p(x)` << 1, x^88128 mod p(x)` << 1 */
++		{ 0x000000018b8d09dc, 0x00000001f4ecbed2 },
++		/* x^87040 mod p(x)` << 1, x^87104 mod p(x)` << 1 */
++		{ 0x00000000e7bc27d2, 0x00000000ba16f1a0 },
++		/* x^86016 mod p(x)` << 1, x^86080 mod p(x)` << 1 */
++		{ 0x00000000275e1e96, 0x0000000115aceac4 },
++		/* x^84992 mod p(x)` << 1, x^85056 mod p(x)` << 1 */
++		{ 0x00000000e2e3031e, 0x00000001aeff6292 },
++		/* x^83968 mod p(x)` << 1, x^84032 mod p(x)` << 1 */
++		{ 0x00000001041c84d8, 0x000000009640124c },
++		/* x^82944 mod p(x)` << 1, x^83008 mod p(x)` << 1 */
++		{ 0x00000000706ce672, 0x0000000114f41f02 },
++		/* x^81920 mod p(x)` << 1, x^81984 mod p(x)` << 1 */
++		{ 0x000000015d5070da, 0x000000009c5f3586 },
++		/* x^80896 mod p(x)` << 1, x^80960 mod p(x)` << 1 */
++		{ 0x0000000038f9493a, 0x00000001878275fa },
++		/* x^79872 mod p(x)` << 1, x^79936 mod p(x)` << 1 */
++		{ 0x00000000a3348a76, 0x00000000ddc42ce8 },
++		/* x^78848 mod p(x)` << 1, x^78912 mod p(x)` << 1 */
++		{ 0x00000001ad0aab92, 0x0000000181d2c73a },
++		/* x^77824 mod p(x)` << 1, x^77888 mod p(x)` << 1 */
++		{ 0x000000019e85f712, 0x0000000141c9320a },
++		/* x^76800 mod p(x)` << 1, x^76864 mod p(x)` << 1 */
++		{ 0x000000005a871e76, 0x000000015235719a },
++		/* x^75776 mod p(x)` << 1, x^75840 mod p(x)` << 1 */
++		{ 0x000000017249c662, 0x00000000be27d804 },
++		/* x^74752 mod p(x)` << 1, x^74816 mod p(x)` << 1 */
++		{ 0x000000003a084712, 0x000000006242d45a },
++		/* x^73728 mod p(x)` << 1, x^73792 mod p(x)` << 1 */
++		{ 0x00000000ed438478, 0x000000009a53638e },
++		/* x^72704 mod p(x)` << 1, x^72768 mod p(x)` << 1 */
++		{ 0x00000000abac34cc, 0x00000001001ecfb6 },
++		/* x^71680 mod p(x)` << 1, x^71744 mod p(x)` << 1 */
++		{ 0x000000005f35ef3e, 0x000000016d7c2d64 },
++		/* x^70656 mod p(x)` << 1, x^70720 mod p(x)` << 1 */
++		{ 0x0000000047d6608c, 0x00000001d0ce46c0 },
++		/* x^69632 mod p(x)` << 1, x^69696 mod p(x)` << 1 */
++		{ 0x000000002d01470e, 0x0000000124c907b4 },
++		/* x^68608 mod p(x)` << 1, x^68672 mod p(x)` << 1 */
++		{ 0x0000000158bbc7b0, 0x0000000018a555ca },
++		/* x^67584 mod p(x)` << 1, x^67648 mod p(x)` << 1 */
++		{ 0x00000000c0a23e8e, 0x000000006b0980bc },
++		/* x^66560 mod p(x)` << 1, x^66624 mod p(x)` << 1 */
++		{ 0x00000001ebd85c88, 0x000000008bbba964 },
++		/* x^65536 mod p(x)` << 1, x^65600 mod p(x)` << 1 */
++		{ 0x000000019ee20bb2, 0x00000001070a5a1e },
++		/* x^64512 mod p(x)` << 1, x^64576 mod p(x)` << 1 */
++		{ 0x00000001acabf2d6, 0x000000002204322a },
++		/* x^63488 mod p(x)` << 1, x^63552 mod p(x)` << 1 */
++		{ 0x00000001b7963d56, 0x00000000a27524d0 },
++		/* x^62464 mod p(x)` << 1, x^62528 mod p(x)` << 1 */
++		{ 0x000000017bffa1fe, 0x0000000020b1e4ba },
++		/* x^61440 mod p(x)` << 1, x^61504 mod p(x)` << 1 */
++		{ 0x000000001f15333e, 0x0000000032cc27fc },
++		/* x^60416 mod p(x)` << 1, x^60480 mod p(x)` << 1 */
++		{ 0x000000018593129e, 0x0000000044dd22b8 },
++		/* x^59392 mod p(x)` << 1, x^59456 mod p(x)` << 1 */
++		{ 0x000000019cb32602, 0x00000000dffc9e0a },
++		/* x^58368 mod p(x)` << 1, x^58432 mod p(x)` << 1 */
++		{ 0x0000000142b05cc8, 0x00000001b7a0ed14 },
++		/* x^57344 mod p(x)` << 1, x^57408 mod p(x)` << 1 */
++		{ 0x00000001be49e7a4, 0x00000000c7842488 },
++		/* x^56320 mod p(x)` << 1, x^56384 mod p(x)` << 1 */
++		{ 0x0000000108f69d6c, 0x00000001c02a4fee },
++		/* x^55296 mod p(x)` << 1, x^55360 mod p(x)` << 1 */
++		{ 0x000000006c0971f0, 0x000000003c273778 },
++		/* x^54272 mod p(x)` << 1, x^54336 mod p(x)` << 1 */
++		{ 0x000000005b16467a, 0x00000001d63f8894 },
++		/* x^53248 mod p(x)` << 1, x^53312 mod p(x)` << 1 */
++		{ 0x00000001551a628e, 0x000000006be557d6 },
++		/* x^52224 mod p(x)` << 1, x^52288 mod p(x)` << 1 */
++		{ 0x000000019e42ea92, 0x000000006a7806ea },
++		/* x^51200 mod p(x)` << 1, x^51264 mod p(x)` << 1 */
++		{ 0x000000012fa83ff2, 0x000000016155aa0c },
++		/* x^50176 mod p(x)` << 1, x^50240 mod p(x)` << 1 */
++		{ 0x000000011ca9cde0, 0x00000000908650ac },
++		/* x^49152 mod p(x)` << 1, x^49216 mod p(x)` << 1 */
++		{ 0x00000000c8e5cd74, 0x00000000aa5a8084 },
++		/* x^48128 mod p(x)` << 1, x^48192 mod p(x)` << 1 */
++		{ 0x0000000096c27f0c, 0x0000000191bb500a },
++		/* x^47104 mod p(x)` << 1, x^47168 mod p(x)` << 1 */
++		{ 0x000000002baed926, 0x0000000064e9bed0 },
++		/* x^46080 mod p(x)` << 1, x^46144 mod p(x)` << 1 */
++		{ 0x000000017c8de8d2, 0x000000009444f302 },
++		/* x^45056 mod p(x)` << 1, x^45120 mod p(x)` << 1 */
++		{ 0x00000000d43d6068, 0x000000019db07d3c },
++		/* x^44032 mod p(x)` << 1, x^44096 mod p(x)` << 1 */
++		{ 0x00000000cb2c4b26, 0x00000001359e3e6e },
++		/* x^43008 mod p(x)` << 1, x^43072 mod p(x)` << 1 */
++		{ 0x0000000145b8da26, 0x00000001e4f10dd2 },
++		/* x^41984 mod p(x)` << 1, x^42048 mod p(x)` << 1 */
++		{ 0x000000018fff4b08, 0x0000000124f5735e },
++		/* x^40960 mod p(x)` << 1, x^41024 mod p(x)` << 1 */
++		{ 0x0000000150b58ed0, 0x0000000124760a4c },
++		/* x^39936 mod p(x)` << 1, x^40000 mod p(x)` << 1 */
++		{ 0x00000001549f39bc, 0x000000000f1fc186 },
++		/* x^38912 mod p(x)` << 1, x^38976 mod p(x)` << 1 */
++		{ 0x00000000ef4d2f42, 0x00000000150e4cc4 },
++		/* x^37888 mod p(x)` << 1, x^37952 mod p(x)` << 1 */
++		{ 0x00000001b1468572, 0x000000002a6204e8 },
++		/* x^36864 mod p(x)` << 1, x^36928 mod p(x)` << 1 */
++		{ 0x000000013d7403b2, 0x00000000beb1d432 },
++		/* x^35840 mod p(x)` << 1, x^35904 mod p(x)` << 1 */
++		{ 0x00000001a4681842, 0x0000000135f3f1f0 },
++		/* x^34816 mod p(x)` << 1, x^34880 mod p(x)` << 1 */
++		{ 0x0000000167714492, 0x0000000074fe2232 },
++		/* x^33792 mod p(x)` << 1, x^33856 mod p(x)` << 1 */
++		{ 0x00000001e599099a, 0x000000001ac6e2ba },
++		/* x^32768 mod p(x)` << 1, x^32832 mod p(x)` << 1 */
++		{ 0x00000000fe128194, 0x0000000013fca91e },
++		/* x^31744 mod p(x)` << 1, x^31808 mod p(x)` << 1 */
++		{ 0x0000000077e8b990, 0x0000000183f4931e },
++		/* x^30720 mod p(x)` << 1, x^30784 mod p(x)` << 1 */
++		{ 0x00000001a267f63a, 0x00000000b6d9b4e4 },
++		/* x^29696 mod p(x)` << 1, x^29760 mod p(x)` << 1 */
++		{ 0x00000001945c245a, 0x00000000b5188656 },
++		/* x^28672 mod p(x)` << 1, x^28736 mod p(x)` << 1 */
++		{ 0x0000000149002e76, 0x0000000027a81a84 },
++		/* x^27648 mod p(x)` << 1, x^27712 mod p(x)` << 1 */
++		{ 0x00000001bb8310a4, 0x0000000125699258 },
++		/* x^26624 mod p(x)` << 1, x^26688 mod p(x)` << 1 */
++		{ 0x000000019ec60bcc, 0x00000001b23de796 },
++		/* x^25600 mod p(x)` << 1, x^25664 mod p(x)` << 1 */
++		{ 0x000000012d8590ae, 0x00000000fe4365dc },
++		/* x^24576 mod p(x)` << 1, x^24640 mod p(x)` << 1 */
++		{ 0x0000000065b00684, 0x00000000c68f497a },
++		/* x^23552 mod p(x)` << 1, x^23616 mod p(x)` << 1 */
++		{ 0x000000015e5aeadc, 0x00000000fbf521ee },
++		/* x^22528 mod p(x)` << 1, x^22592 mod p(x)` << 1 */
++		{ 0x00000000b77ff2b0, 0x000000015eac3378 },
++		/* x^21504 mod p(x)` << 1, x^21568 mod p(x)` << 1 */
++		{ 0x0000000188da2ff6, 0x0000000134914b90 },
++		/* x^20480 mod p(x)` << 1, x^20544 mod p(x)` << 1 */
++		{ 0x0000000063da929a, 0x0000000016335cfe },
++		/* x^19456 mod p(x)` << 1, x^19520 mod p(x)` << 1 */
++		{ 0x00000001389caa80, 0x000000010372d10c },
++		/* x^18432 mod p(x)` << 1, x^18496 mod p(x)` << 1 */
++		{ 0x000000013db599d2, 0x000000015097b908 },
++		/* x^17408 mod p(x)` << 1, x^17472 mod p(x)` << 1 */
++		{ 0x0000000122505a86, 0x00000001227a7572 },
++		/* x^16384 mod p(x)` << 1, x^16448 mod p(x)` << 1 */
++		{ 0x000000016bd72746, 0x000000009a8f75c0 },
++		/* x^15360 mod p(x)` << 1, x^15424 mod p(x)` << 1 */
++		{ 0x00000001c3faf1d4, 0x00000000682c77a2 },
++		/* x^14336 mod p(x)` << 1, x^14400 mod p(x)` << 1 */
++		{ 0x00000001111c826c, 0x00000000231f091c },
++		/* x^13312 mod p(x)` << 1, x^13376 mod p(x)` << 1 */
++		{ 0x00000000153e9fb2, 0x000000007d4439f2 },
++		/* x^12288 mod p(x)` << 1, x^12352 mod p(x)` << 1 */
++		{ 0x000000002b1f7b60, 0x000000017e221efc },
++		/* x^11264 mod p(x)` << 1, x^11328 mod p(x)` << 1 */
++		{ 0x00000000b1dba570, 0x0000000167457c38 },
++		/* x^10240 mod p(x)` << 1, x^10304 mod p(x)` << 1 */
++		{ 0x00000001f6397b76, 0x00000000bdf081c4 },
++		/* x^9216 mod p(x)` << 1, x^9280 mod p(x)` << 1 */
++		{ 0x0000000156335214, 0x000000016286d6b0 },
++		/* x^8192 mod p(x)` << 1, x^8256 mod p(x)` << 1 */
++		{ 0x00000001d70e3986, 0x00000000c84f001c },
++		/* x^7168 mod p(x)` << 1, x^7232 mod p(x)` << 1 */
++		{ 0x000000003701a774, 0x0000000064efe7c0 },
++		/* x^6144 mod p(x)` << 1, x^6208 mod p(x)` << 1 */
++		{ 0x00000000ac81ef72, 0x000000000ac2d904 },
++		/* x^5120 mod p(x)` << 1, x^5184 mod p(x)` << 1 */
++		{ 0x0000000133212464, 0x00000000fd226d14 },
++		/* x^4096 mod p(x)` << 1, x^4160 mod p(x)` << 1 */
++		{ 0x00000000e4e45610, 0x000000011cfd42e0 },
++		/* x^3072 mod p(x)` << 1, x^3136 mod p(x)` << 1 */
++		{ 0x000000000c1bd370, 0x000000016e5a5678 },
++		/* x^2048 mod p(x)` << 1, x^2112 mod p(x)` << 1 */
++		{ 0x00000001a7b9e7a6, 0x00000001d888fe22 },
++		/* x^1024 mod p(x)` << 1, x^1088 mod p(x)` << 1 */
++		{ 0x000000007d657a10, 0x00000001af77fcd4 }
++#else /* __LITTLE_ENDIAN__ */
++		/* x^261120 mod p(x)` << 1, x^261184 mod p(x)` << 1 */
++		{ 0x00000001651797d2, 0x0000000099ea94a8 },
++		/* x^260096 mod p(x)` << 1, x^260160 mod p(x)` << 1 */
++		{ 0x0000000021e0d56c, 0x00000000945a8420 },
++		/* x^259072 mod p(x)` << 1, x^259136 mod p(x)` << 1 */
++		{ 0x000000000f95ecaa, 0x0000000030762706 },
++		/* x^258048 mod p(x)` << 1, x^258112 mod p(x)` << 1 */
++		{ 0x00000001ebd224ac, 0x00000001a52fc582 },
++		/* x^257024 mod p(x)` << 1, x^257088 mod p(x)` << 1 */
++		{ 0x000000000ccb97ca, 0x00000001a4a7167a },
++		/* x^256000 mod p(x)` << 1, x^256064 mod p(x)` << 1 */
++		{ 0x00000001006ec8a8, 0x000000000c18249a },
++		/* x^254976 mod p(x)` << 1, x^255040 mod p(x)` << 1 */
++		{ 0x000000014f58f196, 0x00000000a924ae7c },
++		/* x^253952 mod p(x)` << 1, x^254016 mod p(x)` << 1 */
++		{ 0x00000001a7192ca6, 0x00000001e12ccc12 },
++		/* x^252928 mod p(x)` << 1, x^252992 mod p(x)` << 1 */
++		{ 0x000000019a64bab2, 0x00000000a0b9d4ac },
++		/* x^251904 mod p(x)` << 1, x^251968 mod p(x)` << 1 */
++		{ 0x0000000014f4ed2e, 0x0000000095e8ddfe },
++		/* x^250880 mod p(x)` << 1, x^250944 mod p(x)` << 1 */
++		{ 0x000000011092b6a2, 0x00000000233fddc4 },
++		/* x^249856 mod p(x)` << 1, x^249920 mod p(x)` << 1 */
++		{ 0x00000000c8a1629c, 0x00000001b4529b62 },
++		/* x^248832 mod p(x)` << 1, x^248896 mod p(x)` << 1 */
++		{ 0x000000017bf32e8e, 0x00000001a7fa0e64 },
++		/* x^247808 mod p(x)` << 1, x^247872 mod p(x)` << 1 */
++		{ 0x00000001f8cc6582, 0x00000001b5334592 },
++		/* x^246784 mod p(x)` << 1, x^246848 mod p(x)` << 1 */
++		{ 0x000000008631ddf0, 0x000000011f8ee1b4 },
++		/* x^245760 mod p(x)` << 1, x^245824 mod p(x)` << 1 */
++		{ 0x000000007e5a76d0, 0x000000006252e632 },
++		/* x^244736 mod p(x)` << 1, x^244800 mod p(x)` << 1 */
++		{ 0x000000002b09b31c, 0x00000000ab973e84 },
++		/* x^243712 mod p(x)` << 1, x^243776 mod p(x)` << 1 */
++		{ 0x00000001b2df1f84, 0x000000007734f5ec },
++		/* x^242688 mod p(x)` << 1, x^242752 mod p(x)` << 1 */
++		{ 0x00000001d6f56afc, 0x000000007c547798 },
++		/* x^241664 mod p(x)` << 1, x^241728 mod p(x)` << 1 */
++		{ 0x00000001b9b5e70c, 0x000000007ec40210 },
++		/* x^240640 mod p(x)` << 1, x^240704 mod p(x)` << 1 */
++		{ 0x0000000034b626d2, 0x00000001ab1695a8 },
++		/* x^239616 mod p(x)` << 1, x^239680 mod p(x)` << 1 */
++		{ 0x000000014c53479a, 0x0000000090494bba },
++		/* x^238592 mod p(x)` << 1, x^238656 mod p(x)` << 1 */
++		{ 0x00000001a6d179a4, 0x00000001123fb816 },
++		/* x^237568 mod p(x)` << 1, x^237632 mod p(x)` << 1 */
++		{ 0x000000015abd16b4, 0x00000001e188c74c },
++		/* x^236544 mod p(x)` << 1, x^236608 mod p(x)` << 1 */
++		{ 0x00000000018f9852, 0x00000001c2d3451c },
++		/* x^235520 mod p(x)` << 1, x^235584 mod p(x)` << 1 */
++		{ 0x000000001fb3084a, 0x00000000f55cf1ca },
++		/* x^234496 mod p(x)` << 1, x^234560 mod p(x)` << 1 */
++		{ 0x00000000c53dfb04, 0x00000001a0531540 },
++		/* x^233472 mod p(x)` << 1, x^233536 mod p(x)` << 1 */
++		{ 0x00000000e10c9ad6, 0x0000000132cd7ebc },
++		/* x^232448 mod p(x)` << 1, x^232512 mod p(x)` << 1 */
++		{ 0x0000000025aa994a, 0x0000000073ab7f36 },
++		/* x^231424 mod p(x)` << 1, x^231488 mod p(x)` << 1 */
++		{ 0x00000000fa3a74c4, 0x0000000041aed1c2 },
++		/* x^230400 mod p(x)` << 1, x^230464 mod p(x)` << 1 */
++		{ 0x0000000033eb3f40, 0x0000000136c53800 },
++		/* x^229376 mod p(x)` << 1, x^229440 mod p(x)` << 1 */
++		{ 0x000000017193f296, 0x0000000126835a30 },
++		/* x^228352 mod p(x)` << 1, x^228416 mod p(x)` << 1 */
++		{ 0x0000000043f6c86a, 0x000000006241b502 },
++		/* x^227328 mod p(x)` << 1, x^227392 mod p(x)` << 1 */
++		{ 0x000000016b513ec6, 0x00000000d5196ad4 },
++		/* x^226304 mod p(x)` << 1, x^226368 mod p(x)` << 1 */
++		{ 0x00000000c8f25b4e, 0x000000009cfa769a },
++		/* x^225280 mod p(x)` << 1, x^225344 mod p(x)` << 1 */
++		{ 0x00000001a45048ec, 0x00000000920e5df4 },
++		/* x^224256 mod p(x)` << 1, x^224320 mod p(x)` << 1 */
++		{ 0x000000000c441004, 0x0000000169dc310e },
++		/* x^223232 mod p(x)` << 1, x^223296 mod p(x)` << 1 */
++		{ 0x000000000e17cad6, 0x0000000009fc331c },
++		/* x^222208 mod p(x)` << 1, x^222272 mod p(x)` << 1 */
++		{ 0x00000001253ae964, 0x000000010d94a81e },
++		/* x^221184 mod p(x)` << 1, x^221248 mod p(x)` << 1 */
++		{ 0x00000001d7c88ebc, 0x0000000027a20ab2 },
++		/* x^220160 mod p(x)` << 1, x^220224 mod p(x)` << 1 */
++		{ 0x00000001e7ca913a, 0x0000000114f87504 },
++		/* x^219136 mod p(x)` << 1, x^219200 mod p(x)` << 1 */
++		{ 0x0000000033ed078a, 0x000000004b076d96 },
++		/* x^218112 mod p(x)` << 1, x^218176 mod p(x)` << 1 */
++		{ 0x00000000e1839c78, 0x00000000da4d1e74 },
++		/* x^217088 mod p(x)` << 1, x^217152 mod p(x)` << 1 */
++		{ 0x00000001322b267e, 0x000000001b81f672 },
++		/* x^216064 mod p(x)` << 1, x^216128 mod p(x)` << 1 */
++		{ 0x00000000638231b6, 0x000000009367c988 },
++		/* x^215040 mod p(x)` << 1, x^215104 mod p(x)` << 1 */
++		{ 0x00000001ee7f16f4, 0x00000001717214ca },
++		/* x^214016 mod p(x)` << 1, x^214080 mod p(x)` << 1 */
++		{ 0x0000000117d9924a, 0x000000009f47d820 },
++		/* x^212992 mod p(x)` << 1, x^213056 mod p(x)` << 1 */
++		{ 0x00000000e1a9e0c4, 0x000000010d9a47d2 },
++		/* x^211968 mod p(x)` << 1, x^212032 mod p(x)` << 1 */
++		{ 0x00000001403731dc, 0x00000000a696c58c },
++		/* x^210944 mod p(x)` << 1, x^211008 mod p(x)` << 1 */
++		{ 0x00000001a5ea9682, 0x000000002aa28ec6 },
++		/* x^209920 mod p(x)` << 1, x^209984 mod p(x)` << 1 */
++		{ 0x0000000101c5c578, 0x00000001fe18fd9a },
++		/* x^208896 mod p(x)` << 1, x^208960 mod p(x)` << 1 */
++		{ 0x00000000dddf6494, 0x000000019d4fc1ae },
++		/* x^207872 mod p(x)` << 1, x^207936 mod p(x)` << 1 */
++		{ 0x00000000f1c3db28, 0x00000001ba0e3dea },
++		/* x^206848 mod p(x)` << 1, x^206912 mod p(x)` << 1 */
++		{ 0x000000013112fb9c, 0x0000000074b59a5e },
++		/* x^205824 mod p(x)` << 1, x^205888 mod p(x)` << 1 */
++		{ 0x00000000b680b906, 0x00000000f2b5ea98 },
++		/* x^204800 mod p(x)` << 1, x^204864 mod p(x)` << 1 */
++		{ 0x000000001a282932, 0x0000000187132676 },
++		/* x^203776 mod p(x)` << 1, x^203840 mod p(x)` << 1 */
++		{ 0x0000000089406e7e, 0x000000010a8c6ad4 },
++		/* x^202752 mod p(x)` << 1, x^202816 mod p(x)` << 1 */
++		{ 0x00000001def6be8c, 0x00000001e21dfe70 },
++		/* x^201728 mod p(x)` << 1, x^201792 mod p(x)` << 1 */
++		{ 0x0000000075258728, 0x00000001da0050e4 },
++		/* x^200704 mod p(x)` << 1, x^200768 mod p(x)` << 1 */
++		{ 0x000000019536090a, 0x00000000772172ae },
++		/* x^199680 mod p(x)` << 1, x^199744 mod p(x)` << 1 */
++		{ 0x00000000f2455bfc, 0x00000000e47724aa },
++		/* x^198656 mod p(x)` << 1, x^198720 mod p(x)` << 1 */
++		{ 0x000000018c40baf4, 0x000000003cd63ac4 },
++		/* x^197632 mod p(x)` << 1, x^197696 mod p(x)` << 1 */
++		{ 0x000000004cd390d4, 0x00000001bf47d352 },
++		/* x^196608 mod p(x)` << 1, x^196672 mod p(x)` << 1 */
++		{ 0x00000001e4ece95a, 0x000000018dc1d708 },
++		/* x^195584 mod p(x)` << 1, x^195648 mod p(x)` << 1 */
++		{ 0x000000001a3ee918, 0x000000002d4620a4 },
++		/* x^194560 mod p(x)` << 1, x^194624 mod p(x)` << 1 */
++		{ 0x000000007c652fb8, 0x0000000058fd1740 },
++		/* x^193536 mod p(x)` << 1, x^193600 mod p(x)` << 1 */
++		{ 0x000000011c67842c, 0x00000000dadd9bfc },
++		/* x^192512 mod p(x)` << 1, x^192576 mod p(x)` << 1 */
++		{ 0x00000000254f759c, 0x00000001ea2140be },
++		/* x^191488 mod p(x)` << 1, x^191552 mod p(x)` << 1 */
++		{ 0x000000007ece94ca, 0x000000009de128ba },
++		/* x^190464 mod p(x)` << 1, x^190528 mod p(x)` << 1 */
++		{ 0x0000000038f258c2, 0x000000013ac3aa8e },
++		/* x^189440 mod p(x)` << 1, x^189504 mod p(x)` << 1 */
++		{ 0x00000001cdf17b00, 0x0000000099980562 },
++		/* x^188416 mod p(x)` << 1, x^188480 mod p(x)` << 1 */
++		{ 0x000000011f882c16, 0x00000001c1579c86 },
++		/* x^187392 mod p(x)` << 1, x^187456 mod p(x)` << 1 */
++		{ 0x0000000100093fc8, 0x0000000068dbbf94 },
++		/* x^186368 mod p(x)` << 1, x^186432 mod p(x)` << 1 */
++		{ 0x00000001cd684f16, 0x000000004509fb04 },
++		/* x^185344 mod p(x)` << 1, x^185408 mod p(x)` << 1 */
++		{ 0x000000004bc6a70a, 0x00000001202f6398 },
++		/* x^184320 mod p(x)` << 1, x^184384 mod p(x)` << 1 */
++		{ 0x000000004fc7e8e4, 0x000000013aea243e },
++		/* x^183296 mod p(x)` << 1, x^183360 mod p(x)` << 1 */
++		{ 0x0000000130103f1c, 0x00000001b4052ae6 },
++		/* x^182272 mod p(x)` << 1, x^182336 mod p(x)` << 1 */
++		{ 0x0000000111b0024c, 0x00000001cd2a0ae8 },
++		/* x^181248 mod p(x)` << 1, x^181312 mod p(x)` << 1 */
++		{ 0x000000010b3079da, 0x00000001fe4aa8b4 },
++		/* x^180224 mod p(x)` << 1, x^180288 mod p(x)` << 1 */
++		{ 0x000000010192bcc2, 0x00000001d1559a42 },
++		/* x^179200 mod p(x)` << 1, x^179264 mod p(x)` << 1 */
++		{ 0x0000000074838d50, 0x00000001f3e05ecc },
++		/* x^178176 mod p(x)` << 1, x^178240 mod p(x)` << 1 */
++		{ 0x000000001b20f520, 0x0000000104ddd2cc },
++		/* x^177152 mod p(x)` << 1, x^177216 mod p(x)` << 1 */
++		{ 0x0000000050c3590a, 0x000000015393153c },
++		/* x^176128 mod p(x)` << 1, x^176192 mod p(x)` << 1 */
++		{ 0x00000000b41cac8e, 0x0000000057e942c6 },
++		/* x^175104 mod p(x)` << 1, x^175168 mod p(x)` << 1 */
++		{ 0x000000000c72cc78, 0x000000012c633850 },
++		/* x^174080 mod p(x)` << 1, x^174144 mod p(x)` << 1 */
++		{ 0x0000000030cdb032, 0x00000000ebcaae4c },
++		/* x^173056 mod p(x)` << 1, x^173120 mod p(x)` << 1 */
++		{ 0x000000013e09fc32, 0x000000013ee532a6 },
++		/* x^172032 mod p(x)` << 1, x^172096 mod p(x)` << 1 */
++		{ 0x000000001ed624d2, 0x00000001bf0cbc7e },
++		/* x^171008 mod p(x)` << 1, x^171072 mod p(x)` << 1 */
++		{ 0x00000000781aee1a, 0x00000000d50b7a5a },
++		/* x^169984 mod p(x)` << 1, x^170048 mod p(x)` << 1 */
++		{ 0x00000001c4d8348c, 0x0000000002fca6e8 },
++		/* x^168960 mod p(x)` << 1, x^169024 mod p(x)` << 1 */
++		{ 0x0000000057a40336, 0x000000007af40044 },
++		/* x^167936 mod p(x)` << 1, x^168000 mod p(x)` << 1 */
++		{ 0x0000000085544940, 0x0000000016178744 },
++		/* x^166912 mod p(x)` << 1, x^166976 mod p(x)` << 1 */
++		{ 0x000000019cd21e80, 0x000000014c177458 },
++		/* x^165888 mod p(x)` << 1, x^165952 mod p(x)` << 1 */
++		{ 0x000000013eb95bc0, 0x000000011b6ddf04 },
++		/* x^164864 mod p(x)` << 1, x^164928 mod p(x)` << 1 */
++		{ 0x00000001dfc9fdfc, 0x00000001f3e29ccc },
++		/* x^163840 mod p(x)` << 1, x^163904 mod p(x)` << 1 */
++		{ 0x00000000cd028bc2, 0x0000000135ae7562 },
++		/* x^162816 mod p(x)` << 1, x^162880 mod p(x)` << 1 */
++		{ 0x0000000090db8c44, 0x0000000190ef812c },
++		/* x^161792 mod p(x)` << 1, x^161856 mod p(x)` << 1 */
++		{ 0x000000010010a4ce, 0x0000000067a2c786 },
++		/* x^160768 mod p(x)` << 1, x^160832 mod p(x)` << 1 */
++		{ 0x00000001c8f4c72c, 0x0000000048b9496c },
++		/* x^159744 mod p(x)` << 1, x^159808 mod p(x)` << 1 */
++		{ 0x000000001c26170c, 0x000000015a422de6 },
++		/* x^158720 mod p(x)` << 1, x^158784 mod p(x)` << 1 */
++		{ 0x00000000e3fccf68, 0x00000001ef0e3640 },
++		/* x^157696 mod p(x)` << 1, x^157760 mod p(x)` << 1 */
++		{ 0x00000000d513ed24, 0x00000001006d2d26 },
++		/* x^156672 mod p(x)` << 1, x^156736 mod p(x)` << 1 */
++		{ 0x00000000141beada, 0x00000001170d56d6 },
++		/* x^155648 mod p(x)` << 1, x^155712 mod p(x)` << 1 */
++		{ 0x000000011071aea0, 0x00000000a5fb613c },
++		/* x^154624 mod p(x)` << 1, x^154688 mod p(x)` << 1 */
++		{ 0x000000012e19080a, 0x0000000040bbf7fc },
++		/* x^153600 mod p(x)` << 1, x^153664 mod p(x)` << 1 */
++		{ 0x0000000100ecf826, 0x000000016ac3a5b2 },
++		/* x^152576 mod p(x)` << 1, x^152640 mod p(x)` << 1 */
++		{ 0x0000000069b09412, 0x00000000abf16230 },
++		/* x^151552 mod p(x)` << 1, x^151616 mod p(x)` << 1 */
++		{ 0x0000000122297bac, 0x00000001ebe23fac },
++		/* x^150528 mod p(x)` << 1, x^150592 mod p(x)` << 1 */
++		{ 0x00000000e9e4b068, 0x000000008b6a0894 },
++		/* x^149504 mod p(x)` << 1, x^149568 mod p(x)` << 1 */
++		{ 0x000000004b38651a, 0x00000001288ea478 },
++		/* x^148480 mod p(x)` << 1, x^148544 mod p(x)` << 1 */
++		{ 0x00000001468360e2, 0x000000016619c442 },
++		/* x^147456 mod p(x)` << 1, x^147520 mod p(x)` << 1 */
++		{ 0x00000000121c2408, 0x0000000086230038 },
++		/* x^146432 mod p(x)` << 1, x^146496 mod p(x)` << 1 */
++		{ 0x00000000da7e7d08, 0x000000017746a756 },
++		/* x^145408 mod p(x)` << 1, x^145472 mod p(x)` << 1 */
++		{ 0x00000001058d7652, 0x0000000191b8f8f8 },
++		/* x^144384 mod p(x)` << 1, x^144448 mod p(x)` << 1 */
++		{ 0x000000014a098a90, 0x000000008e167708 },
++		/* x^143360 mod p(x)` << 1, x^143424 mod p(x)` << 1 */
++		{ 0x0000000020dbe72e, 0x0000000148b22d54 },
++		/* x^142336 mod p(x)` << 1, x^142400 mod p(x)` << 1 */
++		{ 0x000000011e7323e8, 0x0000000044ba2c3c },
++		/* x^141312 mod p(x)` << 1, x^141376 mod p(x)` << 1 */
++		{ 0x00000000d5d4bf94, 0x00000000b54d2b52 },
++		/* x^140288 mod p(x)` << 1, x^140352 mod p(x)` << 1 */
++		{ 0x0000000199d8746c, 0x0000000005a4fd8a },
++		/* x^139264 mod p(x)` << 1, x^139328 mod p(x)` << 1 */
++		{ 0x00000000ce9ca8a0, 0x0000000139f9fc46 },
++		/* x^138240 mod p(x)` << 1, x^138304 mod p(x)` << 1 */
++		{ 0x00000000136edece, 0x000000015a1fa824 },
++		/* x^137216 mod p(x)` << 1, x^137280 mod p(x)` << 1 */
++		{ 0x000000019b92a068, 0x000000000a61ae4c },
++		/* x^136192 mod p(x)` << 1, x^136256 mod p(x)` << 1 */
++		{ 0x0000000071d62206, 0x0000000145e9113e },
++		/* x^135168 mod p(x)` << 1, x^135232 mod p(x)` << 1 */
++		{ 0x00000000dfc50158, 0x000000006a348448 },
++		/* x^134144 mod p(x)` << 1, x^134208 mod p(x)` << 1 */
++		{ 0x00000001517626bc, 0x000000004d80a08c },
++		/* x^133120 mod p(x)` << 1, x^133184 mod p(x)` << 1 */
++		{ 0x0000000148d1e4fa, 0x000000014b6837a0 },
++		/* x^132096 mod p(x)` << 1, x^132160 mod p(x)` << 1 */
++		{ 0x0000000094d8266e, 0x000000016896a7fc },
++		/* x^131072 mod p(x)` << 1, x^131136 mod p(x)` << 1 */
++		{ 0x00000000606c5e34, 0x000000014f187140 },
++		/* x^130048 mod p(x)` << 1, x^130112 mod p(x)` << 1 */
++		{ 0x000000019766beaa, 0x000000019581b9da },
++		/* x^129024 mod p(x)` << 1, x^129088 mod p(x)` << 1 */
++		{ 0x00000001d80c506c, 0x00000001091bc984 },
++		/* x^128000 mod p(x)` << 1, x^128064 mod p(x)` << 1 */
++		{ 0x000000001e73837c, 0x000000001067223c },
++		/* x^126976 mod p(x)` << 1, x^127040 mod p(x)` << 1 */
++		{ 0x0000000064d587de, 0x00000001ab16ea02 },
++		/* x^125952 mod p(x)` << 1, x^126016 mod p(x)` << 1 */
++		{ 0x00000000f4a507b0, 0x000000013c4598a8 },
++		/* x^124928 mod p(x)` << 1, x^124992 mod p(x)` << 1 */
++		{ 0x0000000040e342fc, 0x00000000b3735430 },
++		/* x^123904 mod p(x)` << 1, x^123968 mod p(x)` << 1 */
++		{ 0x00000001d5ad9c3a, 0x00000001bb3fc0c0 },
++		/* x^122880 mod p(x)` << 1, x^122944 mod p(x)` << 1 */
++		{ 0x0000000094a691a4, 0x00000001570ae19c },
++		/* x^121856 mod p(x)` << 1, x^121920 mod p(x)` << 1 */
++		{ 0x00000001271ecdfa, 0x00000001ea910712 },
++		/* x^120832 mod p(x)` << 1, x^120896 mod p(x)` << 1 */
++		{ 0x000000009e54475a, 0x0000000167127128 },
++		/* x^119808 mod p(x)` << 1, x^119872 mod p(x)` << 1 */
++		{ 0x00000000c9c099ee, 0x0000000019e790a2 },
++		/* x^118784 mod p(x)` << 1, x^118848 mod p(x)` << 1 */
++		{ 0x000000009a2f736c, 0x000000003788f710 },
++		/* x^117760 mod p(x)` << 1, x^117824 mod p(x)` << 1 */
++		{ 0x00000000bb9f4996, 0x00000001682a160e },
++		/* x^116736 mod p(x)` << 1, x^116800 mod p(x)` << 1 */
++		{ 0x00000001db688050, 0x000000007f0ebd2e },
++		/* x^115712 mod p(x)` << 1, x^115776 mod p(x)` << 1 */
++		{ 0x00000000e9b10af4, 0x000000002b032080 },
++		/* x^114688 mod p(x)` << 1, x^114752 mod p(x)` << 1 */
++		{ 0x000000012d4545e4, 0x00000000cfd1664a },
++		/* x^113664 mod p(x)` << 1, x^113728 mod p(x)` << 1 */
++		{ 0x000000000361139c, 0x00000000aa1181c2 },
++		/* x^112640 mod p(x)` << 1, x^112704 mod p(x)` << 1 */
++		{ 0x00000001a5a1a3a8, 0x00000000ddd08002 },
++		/* x^111616 mod p(x)` << 1, x^111680 mod p(x)` << 1 */
++		{ 0x000000006844e0b0, 0x00000000e8dd0446 },
++		/* x^110592 mod p(x)` << 1, x^110656 mod p(x)` << 1 */
++		{ 0x00000000c3762f28, 0x00000001bbd94a00 },
++		/* x^109568 mod p(x)` << 1, x^109632 mod p(x)` << 1 */
++		{ 0x00000001d26287a2, 0x00000000ab6cd180 },
++		/* x^108544 mod p(x)` << 1, x^108608 mod p(x)` << 1 */
++		{ 0x00000001f6f0bba8, 0x0000000031803ce2 },
++		/* x^107520 mod p(x)` << 1, x^107584 mod p(x)` << 1 */
++		{ 0x000000002ffabd62, 0x0000000024f40b0c },
++		/* x^106496 mod p(x)` << 1, x^106560 mod p(x)` << 1 */
++		{ 0x00000000fb4516b8, 0x00000001ba1d9834 },
++		/* x^105472 mod p(x)` << 1, x^105536 mod p(x)` << 1 */
++		{ 0x000000018cfa961c, 0x0000000104de61aa },
++		/* x^104448 mod p(x)` << 1, x^104512 mod p(x)` << 1 */
++		{ 0x000000019e588d52, 0x0000000113e40d46 },
++		/* x^103424 mod p(x)` << 1, x^103488 mod p(x)` << 1 */
++		{ 0x00000001180f0bbc, 0x00000001415598a0 },
++		/* x^102400 mod p(x)` << 1, x^102464 mod p(x)` << 1 */
++		{ 0x00000000e1d9177a, 0x00000000bf6c8c90 },
++		/* x^101376 mod p(x)` << 1, x^101440 mod p(x)` << 1 */
++		{ 0x0000000105abc27c, 0x00000001788b0504 },
++		/* x^100352 mod p(x)` << 1, x^100416 mod p(x)` << 1 */
++		{ 0x00000000972e4a58, 0x0000000038385d02 },
++		/* x^99328 mod p(x)` << 1, x^99392 mod p(x)` << 1 */
++		{ 0x0000000183499a5e, 0x00000001b6c83844 },
++		/* x^98304 mod p(x)` << 1, x^98368 mod p(x)` << 1 */
++		{ 0x00000001c96a8cca, 0x0000000051061a8a },
++		/* x^97280 mod p(x)` << 1, x^97344 mod p(x)` << 1 */
++		{ 0x00000001a1a5b60c, 0x000000017351388a },
++		/* x^96256 mod p(x)` << 1, x^96320 mod p(x)` << 1 */
++		{ 0x00000000e4b6ac9c, 0x0000000132928f92 },
++		/* x^95232 mod p(x)` << 1, x^95296 mod p(x)` << 1 */
++		{ 0x00000001807e7f5a, 0x00000000e6b4f48a },
++		/* x^94208 mod p(x)` << 1, x^94272 mod p(x)` << 1 */
++		{ 0x000000017a7e3bc8, 0x0000000039d15e90 },
++		/* x^93184 mod p(x)` << 1, x^93248 mod p(x)` << 1 */
++		{ 0x00000000d73975da, 0x00000000312d6074 },
++		/* x^92160 mod p(x)` << 1, x^92224 mod p(x)` << 1 */
++		{ 0x000000017375d038, 0x000000017bbb2cc4 },
++		/* x^91136 mod p(x)` << 1, x^91200 mod p(x)` << 1 */
++		{ 0x00000000193680bc, 0x000000016ded3e18 },
++		/* x^90112 mod p(x)` << 1, x^90176 mod p(x)` << 1 */
++		{ 0x00000000999b06f6, 0x00000000f1638b16 },
++		/* x^89088 mod p(x)` << 1, x^89152 mod p(x)` << 1 */
++		{ 0x00000001f685d2b8, 0x00000001d38b9ecc },
++		/* x^88064 mod p(x)` << 1, x^88128 mod p(x)` << 1 */
++		{ 0x00000001f4ecbed2, 0x000000018b8d09dc },
++		/* x^87040 mod p(x)` << 1, x^87104 mod p(x)` << 1 */
++		{ 0x00000000ba16f1a0, 0x00000000e7bc27d2 },
++		/* x^86016 mod p(x)` << 1, x^86080 mod p(x)` << 1 */
++		{ 0x0000000115aceac4, 0x00000000275e1e96 },
++		/* x^84992 mod p(x)` << 1, x^85056 mod p(x)` << 1 */
++		{ 0x00000001aeff6292, 0x00000000e2e3031e },
++		/* x^83968 mod p(x)` << 1, x^84032 mod p(x)` << 1 */
++		{ 0x000000009640124c, 0x00000001041c84d8 },
++		/* x^82944 mod p(x)` << 1, x^83008 mod p(x)` << 1 */
++		{ 0x0000000114f41f02, 0x00000000706ce672 },
++		/* x^81920 mod p(x)` << 1, x^81984 mod p(x)` << 1 */
++		{ 0x000000009c5f3586, 0x000000015d5070da },
++		/* x^80896 mod p(x)` << 1, x^80960 mod p(x)` << 1 */
++		{ 0x00000001878275fa, 0x0000000038f9493a },
++		/* x^79872 mod p(x)` << 1, x^79936 mod p(x)` << 1 */
++		{ 0x00000000ddc42ce8, 0x00000000a3348a76 },
++		/* x^78848 mod p(x)` << 1, x^78912 mod p(x)` << 1 */
++		{ 0x0000000181d2c73a, 0x00000001ad0aab92 },
++		/* x^77824 mod p(x)` << 1, x^77888 mod p(x)` << 1 */
++		{ 0x0000000141c9320a, 0x000000019e85f712 },
++		/* x^76800 mod p(x)` << 1, x^76864 mod p(x)` << 1 */
++		{ 0x000000015235719a, 0x000000005a871e76 },
++		/* x^75776 mod p(x)` << 1, x^75840 mod p(x)` << 1 */
++		{ 0x00000000be27d804, 0x000000017249c662 },
++		/* x^74752 mod p(x)` << 1, x^74816 mod p(x)` << 1 */
++		{ 0x000000006242d45a, 0x000000003a084712 },
++		/* x^73728 mod p(x)` << 1, x^73792 mod p(x)` << 1 */
++		{ 0x000000009a53638e, 0x00000000ed438478 },
++		/* x^72704 mod p(x)` << 1, x^72768 mod p(x)` << 1 */
++		{ 0x00000001001ecfb6, 0x00000000abac34cc },
++		/* x^71680 mod p(x)` << 1, x^71744 mod p(x)` << 1 */
++		{ 0x000000016d7c2d64, 0x000000005f35ef3e },
++		/* x^70656 mod p(x)` << 1, x^70720 mod p(x)` << 1 */
++		{ 0x00000001d0ce46c0, 0x0000000047d6608c },
++		/* x^69632 mod p(x)` << 1, x^69696 mod p(x)` << 1 */
++		{ 0x0000000124c907b4, 0x000000002d01470e },
++		/* x^68608 mod p(x)` << 1, x^68672 mod p(x)` << 1 */
++		{ 0x0000000018a555ca, 0x0000000158bbc7b0 },
++		/* x^67584 mod p(x)` << 1, x^67648 mod p(x)` << 1 */
++		{ 0x000000006b0980bc, 0x00000000c0a23e8e },
++		/* x^66560 mod p(x)` << 1, x^66624 mod p(x)` << 1 */
++		{ 0x000000008bbba964, 0x00000001ebd85c88 },
++		/* x^65536 mod p(x)` << 1, x^65600 mod p(x)` << 1 */
++		{ 0x00000001070a5a1e, 0x000000019ee20bb2 },
++		/* x^64512 mod p(x)` << 1, x^64576 mod p(x)` << 1 */
++		{ 0x000000002204322a, 0x00000001acabf2d6 },
++		/* x^63488 mod p(x)` << 1, x^63552 mod p(x)` << 1 */
++		{ 0x00000000a27524d0, 0x00000001b7963d56 },
++		/* x^62464 mod p(x)` << 1, x^62528 mod p(x)` << 1 */
++		{ 0x0000000020b1e4ba, 0x000000017bffa1fe },
++		/* x^61440 mod p(x)` << 1, x^61504 mod p(x)` << 1 */
++		{ 0x0000000032cc27fc, 0x000000001f15333e },
++		/* x^60416 mod p(x)` << 1, x^60480 mod p(x)` << 1 */
++		{ 0x0000000044dd22b8, 0x000000018593129e },
++		/* x^59392 mod p(x)` << 1, x^59456 mod p(x)` << 1 */
++		{ 0x00000000dffc9e0a, 0x000000019cb32602 },
++		/* x^58368 mod p(x)` << 1, x^58432 mod p(x)` << 1 */
++		{ 0x00000001b7a0ed14, 0x0000000142b05cc8 },
++		/* x^57344 mod p(x)` << 1, x^57408 mod p(x)` << 1 */
++		{ 0x00000000c7842488, 0x00000001be49e7a4 },
++		/* x^56320 mod p(x)` << 1, x^56384 mod p(x)` << 1 */
++		{ 0x00000001c02a4fee, 0x0000000108f69d6c },
++		/* x^55296 mod p(x)` << 1, x^55360 mod p(x)` << 1 */
++		{ 0x000000003c273778, 0x000000006c0971f0 },
++		/* x^54272 mod p(x)` << 1, x^54336 mod p(x)` << 1 */
++		{ 0x00000001d63f8894, 0x000000005b16467a },
++		/* x^53248 mod p(x)` << 1, x^53312 mod p(x)` << 1 */
++		{ 0x000000006be557d6, 0x00000001551a628e },
++		/* x^52224 mod p(x)` << 1, x^52288 mod p(x)` << 1 */
++		{ 0x000000006a7806ea, 0x000000019e42ea92 },
++		/* x^51200 mod p(x)` << 1, x^51264 mod p(x)` << 1 */
++		{ 0x000000016155aa0c, 0x000000012fa83ff2 },
++		/* x^50176 mod p(x)` << 1, x^50240 mod p(x)` << 1 */
++		{ 0x00000000908650ac, 0x000000011ca9cde0 },
++		/* x^49152 mod p(x)` << 1, x^49216 mod p(x)` << 1 */
++		{ 0x00000000aa5a8084, 0x00000000c8e5cd74 },
++		/* x^48128 mod p(x)` << 1, x^48192 mod p(x)` << 1 */
++		{ 0x0000000191bb500a, 0x0000000096c27f0c },
++		/* x^47104 mod p(x)` << 1, x^47168 mod p(x)` << 1 */
++		{ 0x0000000064e9bed0, 0x000000002baed926 },
++		/* x^46080 mod p(x)` << 1, x^46144 mod p(x)` << 1 */
++		{ 0x000000009444f302, 0x000000017c8de8d2 },
++		/* x^45056 mod p(x)` << 1, x^45120 mod p(x)` << 1 */
++		{ 0x000000019db07d3c, 0x00000000d43d6068 },
++		/* x^44032 mod p(x)` << 1, x^44096 mod p(x)` << 1 */
++		{ 0x00000001359e3e6e, 0x00000000cb2c4b26 },
++		/* x^43008 mod p(x)` << 1, x^43072 mod p(x)` << 1 */
++		{ 0x00000001e4f10dd2, 0x0000000145b8da26 },
++		/* x^41984 mod p(x)` << 1, x^42048 mod p(x)` << 1 */
++		{ 0x0000000124f5735e, 0x000000018fff4b08 },
++		/* x^40960 mod p(x)` << 1, x^41024 mod p(x)` << 1 */
++		{ 0x0000000124760a4c, 0x0000000150b58ed0 },
++		/* x^39936 mod p(x)` << 1, x^40000 mod p(x)` << 1 */
++		{ 0x000000000f1fc186, 0x00000001549f39bc },
++		/* x^38912 mod p(x)` << 1, x^38976 mod p(x)` << 1 */
++		{ 0x00000000150e4cc4, 0x00000000ef4d2f42 },
++		/* x^37888 mod p(x)` << 1, x^37952 mod p(x)` << 1 */
++		{ 0x000000002a6204e8, 0x00000001b1468572 },
++		/* x^36864 mod p(x)` << 1, x^36928 mod p(x)` << 1 */
++		{ 0x00000000beb1d432, 0x000000013d7403b2 },
++		/* x^35840 mod p(x)` << 1, x^35904 mod p(x)` << 1 */
++		{ 0x0000000135f3f1f0, 0x00000001a4681842 },
++		/* x^34816 mod p(x)` << 1, x^34880 mod p(x)` << 1 */
++		{ 0x0000000074fe2232, 0x0000000167714492 },
++		/* x^33792 mod p(x)` << 1, x^33856 mod p(x)` << 1 */
++		{ 0x000000001ac6e2ba, 0x00000001e599099a },
++		/* x^32768 mod p(x)` << 1, x^32832 mod p(x)` << 1 */
++		{ 0x0000000013fca91e, 0x00000000fe128194 },
++		/* x^31744 mod p(x)` << 1, x^31808 mod p(x)` << 1 */
++		{ 0x0000000183f4931e, 0x0000000077e8b990 },
++		/* x^30720 mod p(x)` << 1, x^30784 mod p(x)` << 1 */
++		{ 0x00000000b6d9b4e4, 0x00000001a267f63a },
++		/* x^29696 mod p(x)` << 1, x^29760 mod p(x)` << 1 */
++		{ 0x00000000b5188656, 0x00000001945c245a },
++		/* x^28672 mod p(x)` << 1, x^28736 mod p(x)` << 1 */
++		{ 0x0000000027a81a84, 0x0000000149002e76 },
++		/* x^27648 mod p(x)` << 1, x^27712 mod p(x)` << 1 */
++		{ 0x0000000125699258, 0x00000001bb8310a4 },
++		/* x^26624 mod p(x)` << 1, x^26688 mod p(x)` << 1 */
++		{ 0x00000001b23de796, 0x000000019ec60bcc },
++		/* x^25600 mod p(x)` << 1, x^25664 mod p(x)` << 1 */
++		{ 0x00000000fe4365dc, 0x000000012d8590ae },
++		/* x^24576 mod p(x)` << 1, x^24640 mod p(x)` << 1 */
++		{ 0x00000000c68f497a, 0x0000000065b00684 },
++		/* x^23552 mod p(x)` << 1, x^23616 mod p(x)` << 1 */
++		{ 0x00000000fbf521ee, 0x000000015e5aeadc },
++		/* x^22528 mod p(x)` << 1, x^22592 mod p(x)` << 1 */
++		{ 0x000000015eac3378, 0x00000000b77ff2b0 },
++		/* x^21504 mod p(x)` << 1, x^21568 mod p(x)` << 1 */
++		{ 0x0000000134914b90, 0x0000000188da2ff6 },
++		/* x^20480 mod p(x)` << 1, x^20544 mod p(x)` << 1 */
++		{ 0x0000000016335cfe, 0x0000000063da929a },
++		/* x^19456 mod p(x)` << 1, x^19520 mod p(x)` << 1 */
++		{ 0x000000010372d10c, 0x00000001389caa80 },
++		/* x^18432 mod p(x)` << 1, x^18496 mod p(x)` << 1 */
++		{ 0x000000015097b908, 0x000000013db599d2 },
++		/* x^17408 mod p(x)` << 1, x^17472 mod p(x)` << 1 */
++		{ 0x00000001227a7572, 0x0000000122505a86 },
++		/* x^16384 mod p(x)` << 1, x^16448 mod p(x)` << 1 */
++		{ 0x000000009a8f75c0, 0x000000016bd72746 },
++		/* x^15360 mod p(x)` << 1, x^15424 mod p(x)` << 1 */
++		{ 0x00000000682c77a2, 0x00000001c3faf1d4 },
++		/* x^14336 mod p(x)` << 1, x^14400 mod p(x)` << 1 */
++		{ 0x00000000231f091c, 0x00000001111c826c },
++		/* x^13312 mod p(x)` << 1, x^13376 mod p(x)` << 1 */
++		{ 0x000000007d4439f2, 0x00000000153e9fb2 },
++		/* x^12288 mod p(x)` << 1, x^12352 mod p(x)` << 1 */
++		{ 0x000000017e221efc, 0x000000002b1f7b60 },
++		/* x^11264 mod p(x)` << 1, x^11328 mod p(x)` << 1 */
++		{ 0x0000000167457c38, 0x00000000b1dba570 },
++		/* x^10240 mod p(x)` << 1, x^10304 mod p(x)` << 1 */
++		{ 0x00000000bdf081c4, 0x00000001f6397b76 },
++		/* x^9216 mod p(x)` << 1, x^9280 mod p(x)` << 1 */
++		{ 0x000000016286d6b0, 0x0000000156335214 },
++		/* x^8192 mod p(x)` << 1, x^8256 mod p(x)` << 1 */
++		{ 0x00000000c84f001c, 0x00000001d70e3986 },
++		/* x^7168 mod p(x)` << 1, x^7232 mod p(x)` << 1 */
++		{ 0x0000000064efe7c0, 0x000000003701a774 },
++		/* x^6144 mod p(x)` << 1, x^6208 mod p(x)` << 1 */
++		{ 0x000000000ac2d904, 0x00000000ac81ef72 },
++		/* x^5120 mod p(x)` << 1, x^5184 mod p(x)` << 1 */
++		{ 0x00000000fd226d14, 0x0000000133212464 },
++		/* x^4096 mod p(x)` << 1, x^4160 mod p(x)` << 1 */
++		{ 0x000000011cfd42e0, 0x00000000e4e45610 },
++		/* x^3072 mod p(x)` << 1, x^3136 mod p(x)` << 1 */
++		{ 0x000000016e5a5678, 0x000000000c1bd370 },
++		/* x^2048 mod p(x)` << 1, x^2112 mod p(x)` << 1 */
++		{ 0x00000001d888fe22, 0x00000001a7b9e7a6 },
++		/* x^1024 mod p(x)` << 1, x^1088 mod p(x)` << 1 */
++		{ 0x00000001af77fcd4, 0x000000007d657a10 }
++#endif /* __LITTLE_ENDIAN__ */
++	};
++
++/* Reduce final 1024-2048 bits to 64 bits, shifting 32 bits to include the trailing 32 bits of zeros */
++
++static const __vector unsigned long long vcrc_short_const[16]
++	__attribute__((aligned (16))) = {
++#ifdef __LITTLE_ENDIAN__
++		/* x^1952 mod p(x) , x^1984 mod p(x) , x^2016 mod p(x) , x^2048 mod p(x)  */
++		{ 0x99168a18ec447f11, 0xed837b2613e8221e },
++		/* x^1824 mod p(x) , x^1856 mod p(x) , x^1888 mod p(x) , x^1920 mod p(x)  */
++		{ 0xe23e954e8fd2cd3c, 0xc8acdd8147b9ce5a },
++		/* x^1696 mod p(x) , x^1728 mod p(x) , x^1760 mod p(x) , x^1792 mod p(x)  */
++		{ 0x92f8befe6b1d2b53, 0xd9ad6d87d4277e25 },
++		/* x^1568 mod p(x) , x^1600 mod p(x) , x^1632 mod p(x) , x^1664 mod p(x)  */
++		{ 0xf38a3556291ea462, 0xc10ec5e033fbca3b },
++		/* x^1440 mod p(x) , x^1472 mod p(x) , x^1504 mod p(x) , x^1536 mod p(x)  */
++		{ 0x974ac56262b6ca4b, 0xc0b55b0e82e02e2f },
++		/* x^1312 mod p(x) , x^1344 mod p(x) , x^1376 mod p(x) , x^1408 mod p(x)  */
++		{ 0x855712b3784d2a56, 0x71aa1df0e172334d },
++		/* x^1184 mod p(x) , x^1216 mod p(x) , x^1248 mod p(x) , x^1280 mod p(x)  */
++		{ 0xa5abe9f80eaee722, 0xfee3053e3969324d },
++		/* x^1056 mod p(x) , x^1088 mod p(x) , x^1120 mod p(x) , x^1152 mod p(x)  */
++		{ 0x1fa0943ddb54814c, 0xf44779b93eb2bd08 },
++		/* x^928 mod p(x) , x^960 mod p(x) , x^992 mod p(x) , x^1024 mod p(x)  */
++		{ 0xa53ff440d7bbfe6a, 0xf5449b3f00cc3374 },
++		/* x^800 mod p(x) , x^832 mod p(x) , x^864 mod p(x) , x^896 mod p(x)  */
++		{ 0xebe7e3566325605c, 0x6f8346e1d777606e },
++		/* x^672 mod p(x) , x^704 mod p(x) , x^736 mod p(x) , x^768 mod p(x)  */
++		{ 0xc65a272ce5b592b8, 0xe3ab4f2ac0b95347 },
++		/* x^544 mod p(x) , x^576 mod p(x) , x^608 mod p(x) , x^640 mod p(x)  */
++		{ 0x5705a9ca4721589f, 0xaa2215ea329ecc11 },
++		/* x^416 mod p(x) , x^448 mod p(x) , x^480 mod p(x) , x^512 mod p(x)  */
++		{ 0xe3720acb88d14467, 0x1ed8f66ed95efd26 },
++		/* x^288 mod p(x) , x^320 mod p(x) , x^352 mod p(x) , x^384 mod p(x)  */
++		{ 0xba1aca0315141c31, 0x78ed02d5a700e96a },
++		/* x^160 mod p(x) , x^192 mod p(x) , x^224 mod p(x) , x^256 mod p(x)  */
++		{ 0xad2a31b3ed627dae, 0xba8ccbe832b39da3 },
++		/* x^32 mod p(x) , x^64 mod p(x) , x^96 mod p(x) , x^128 mod p(x)  */
++		{ 0x6655004fa06a2517, 0xedb88320b1e6b092 }
++#else /* __LITTLE_ENDIAN__ */
++		/* x^1952 mod p(x) , x^1984 mod p(x) , x^2016 mod p(x) , x^2048 mod p(x)  */
++		{ 0xed837b2613e8221e, 0x99168a18ec447f11 },
++		/* x^1824 mod p(x) , x^1856 mod p(x) , x^1888 mod p(x) , x^1920 mod p(x)  */
++		{ 0xc8acdd8147b9ce5a, 0xe23e954e8fd2cd3c },
++		/* x^1696 mod p(x) , x^1728 mod p(x) , x^1760 mod p(x) , x^1792 mod p(x)  */
++		{ 0xd9ad6d87d4277e25, 0x92f8befe6b1d2b53 },
++		/* x^1568 mod p(x) , x^1600 mod p(x) , x^1632 mod p(x) , x^1664 mod p(x)  */
++		{ 0xc10ec5e033fbca3b, 0xf38a3556291ea462 },
++		/* x^1440 mod p(x) , x^1472 mod p(x) , x^1504 mod p(x) , x^1536 mod p(x)  */
++		{ 0xc0b55b0e82e02e2f, 0x974ac56262b6ca4b },
++		/* x^1312 mod p(x) , x^1344 mod p(x) , x^1376 mod p(x) , x^1408 mod p(x)  */
++		{ 0x71aa1df0e172334d, 0x855712b3784d2a56 },
++		/* x^1184 mod p(x) , x^1216 mod p(x) , x^1248 mod p(x) , x^1280 mod p(x)  */
++		{ 0xfee3053e3969324d, 0xa5abe9f80eaee722 },
++		/* x^1056 mod p(x) , x^1088 mod p(x) , x^1120 mod p(x) , x^1152 mod p(x)  */
++		{ 0xf44779b93eb2bd08, 0x1fa0943ddb54814c },
++		/* x^928 mod p(x) , x^960 mod p(x) , x^992 mod p(x) , x^1024 mod p(x)  */
++		{ 0xf5449b3f00cc3374, 0xa53ff440d7bbfe6a },
++		/* x^800 mod p(x) , x^832 mod p(x) , x^864 mod p(x) , x^896 mod p(x)  */
++		{ 0x6f8346e1d777606e, 0xebe7e3566325605c },
++		/* x^672 mod p(x) , x^704 mod p(x) , x^736 mod p(x) , x^768 mod p(x)  */
++		{ 0xe3ab4f2ac0b95347, 0xc65a272ce5b592b8 },
++		/* x^544 mod p(x) , x^576 mod p(x) , x^608 mod p(x) , x^640 mod p(x)  */
++		{ 0xaa2215ea329ecc11, 0x5705a9ca4721589f },
++		/* x^416 mod p(x) , x^448 mod p(x) , x^480 mod p(x) , x^512 mod p(x)  */
++		{ 0x1ed8f66ed95efd26, 0xe3720acb88d14467 },
++		/* x^288 mod p(x) , x^320 mod p(x) , x^352 mod p(x) , x^384 mod p(x)  */
++		{ 0x78ed02d5a700e96a, 0xba1aca0315141c31 },
++		/* x^160 mod p(x) , x^192 mod p(x) , x^224 mod p(x) , x^256 mod p(x)  */
++		{ 0xba8ccbe832b39da3, 0xad2a31b3ed627dae },
++		/* x^32 mod p(x) , x^64 mod p(x) , x^96 mod p(x) , x^128 mod p(x)  */
++		{ 0xedb88320b1e6b092, 0x6655004fa06a2517 }
++#endif /* __LITTLE_ENDIAN__ */
++	};
++
++/* Barrett constants */
++/* 33 bit reflected Barrett constant m - (4^32)/n */
++
++static const __vector unsigned long long v_Barrett_const[2]
++	__attribute__((aligned (16))) = {
++		/* x^64 div p(x)  */
++#ifdef __LITTLE_ENDIAN__
++		{ 0x00000001f7011641, 0x0000000000000000 },
++		{ 0x00000001db710641, 0x0000000000000000 }
++#else /* __LITTLE_ENDIAN__ */
++		{ 0x0000000000000000, 0x00000001f7011641 },
++		{ 0x0000000000000000, 0x00000001db710641 }
++#endif /* __LITTLE_ENDIAN__ */
++	};
++#endif /* POWER8_INTRINSICS */
++
++#endif /* __ASSEMBLER__ */
+diff --git a/contrib/power/crc32_z_power8.c b/contrib/power/crc32_z_power8.c
+new file mode 100644
+index 0000000..7858cfe
+--- /dev/null
++++ b/contrib/power/crc32_z_power8.c
+@@ -0,0 +1,679 @@
++/*
++ * Calculate the checksum of data that is 16 byte aligned and a multiple of
++ * 16 bytes.
++ *
++ * The first step is to reduce it to 1024 bits. We do this in 8 parallel
++ * chunks in order to mask the latency of the vpmsum instructions. If we
++ * have more than 32 kB of data to checksum we repeat this step multiple
++ * times, passing in the previous 1024 bits.
++ *
++ * The next step is to reduce the 1024 bits to 64 bits. This step adds
++ * 32 bits of 0s to the end - this matches what a CRC does. We just
++ * calculate constants that land the data in this 32 bits.
++ *
++ * We then use fixed point Barrett reduction to compute a mod n over GF(2)
++ * for n = CRC using POWER8 instructions. We use x = 32.
++ *
++ * http://en.wikipedia.org/wiki/Barrett_reduction
++ *
++ * This code uses gcc vector builtins instead using assembly directly.
++ *
++ * Copyright (C) 2017 Rogerio Alves <rogealve@br.ibm.com>, IBM
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of either:
++ *
++ *  a) the GNU General Public License as published by the Free Software
++ *     Foundation; either version 2 of the License, or (at your option)
++ *     any later version, or
++ *  b) the Apache License, Version 2.0
++ */
++
++#include <altivec.h>
++#include "../../zutil.h"
++#include "power.h"
++
++#define POWER8_INTRINSICS
++#define CRC_TABLE
++
++#ifdef CRC32_CONSTANTS_HEADER
++#include CRC32_CONSTANTS_HEADER
++#else
++#include "crc32_constants.h"
++#endif
++
++#define VMX_ALIGN	16
++#define VMX_ALIGN_MASK	(VMX_ALIGN-1)
++
++#ifdef REFLECT
++static unsigned int crc32_align(unsigned int crc, const unsigned char *p,
++			       unsigned long len)
++{
++	while (len--)
++		crc = crc_table[(crc ^ *p++) & 0xff] ^ (crc >> 8);
++	return crc;
++}
++#else
++static unsigned int crc32_align(unsigned int crc, const unsigned char *p,
++				unsigned long len)
++{
++	while (len--)
++		crc = crc_table[((crc >> 24) ^ *p++) & 0xff] ^ (crc << 8);
++	return crc;
++}
++#endif
++
++static unsigned int __attribute__ ((aligned (32)))
++__crc32_vpmsum(unsigned int crc, const void* p, unsigned long len);
++
++unsigned long ZLIB_INTERNAL _crc32_z_power8(uLong _crc, const Bytef *_p,
++			    z_size_t _len)
++{
++	unsigned int prealign;
++	unsigned int tail;
++
++	/* Map zlib API to crc32_vpmsum API */
++	unsigned int crc = (unsigned int) (0xffffffff & _crc);
++	const unsigned char *p = _p;
++	unsigned long len = (unsigned long) _len;
++
++	if (p == (const unsigned char *) 0x0) return 0;
++#ifdef CRC_XOR
++	crc ^= 0xffffffff;
++#endif
++
++	if (len < VMX_ALIGN + VMX_ALIGN_MASK) {
++		crc = crc32_align(crc, p, len);
++		goto out;
++	}
++
++	if ((unsigned long)p & VMX_ALIGN_MASK) {
++		prealign = VMX_ALIGN - ((unsigned long)p & VMX_ALIGN_MASK);
++		crc = crc32_align(crc, p, prealign);
++		len -= prealign;
++		p += prealign;
++	}
++
++	crc = __crc32_vpmsum(crc, p, len & ~VMX_ALIGN_MASK);
++
++	tail = len & VMX_ALIGN_MASK;
++	if (tail) {
++		p += len & ~VMX_ALIGN_MASK;
++		crc = crc32_align(crc, p, tail);
++	}
++
++out:
++#ifdef CRC_XOR
++	crc ^= 0xffffffff;
++#endif
++
++	/* Convert to zlib API */
++	return (unsigned long) crc;
++}
++
++#if defined (__clang__)
++#include "clang_workaround.h"
++#else
++#define __builtin_pack_vector(a, b)  __builtin_pack_vector_int128 ((a), (b))
++#define __builtin_unpack_vector_0(a) __builtin_unpack_vector_int128 ((vector __int128_t)(a), 0)
++#define __builtin_unpack_vector_1(a) __builtin_unpack_vector_int128 ((vector __int128_t)(a), 1)
++#endif
++
++/* When we have a load-store in a single-dispatch group and address overlap
++ * such that foward is not allowed (load-hit-store) the group must be flushed.
++ * A group ending NOP prevents the flush.
++ */
++#define GROUP_ENDING_NOP asm("ori 2,2,0" ::: "memory")
++
++#if defined(__BIG_ENDIAN__) && defined (REFLECT)
++#define BYTESWAP_DATA
++#elif defined(__LITTLE_ENDIAN__) && !defined(REFLECT)
++#define BYTESWAP_DATA
++#endif
++
++#ifdef BYTESWAP_DATA
++#define VEC_PERM(vr, va, vb, vc) vr = vec_perm(va, vb,\
++			(__vector unsigned char) vc)
++#if defined(__LITTLE_ENDIAN__)
++/* Byte reverse permute constant LE. */
++static const __vector unsigned long long vperm_const
++	__attribute__ ((aligned(16))) = { 0x08090A0B0C0D0E0FUL,
++			0x0001020304050607UL };
++#else
++static const __vector unsigned long long vperm_const
++	__attribute__ ((aligned(16))) = { 0x0F0E0D0C0B0A0908UL,
++			0X0706050403020100UL };
++#endif
++#else
++#define VEC_PERM(vr, va, vb, vc)
++#endif
++
++static unsigned int __attribute__ ((aligned (32)))
++__crc32_vpmsum(unsigned int crc, const void* p, unsigned long len) {
++
++	const __vector unsigned long long vzero = {0,0};
++	const __vector unsigned long long vones = {0xffffffffffffffffUL,
++		0xffffffffffffffffUL};
++
++#ifdef REFLECT
++	const __vector unsigned long long vmask_32bit =
++		(__vector unsigned long long)vec_sld((__vector unsigned char)vzero,
++			(__vector unsigned char)vones, 4);
++#endif
++
++	const __vector unsigned long long vmask_64bit =
++		(__vector unsigned long long)vec_sld((__vector unsigned char)vzero,
++			(__vector unsigned char)vones, 8);
++
++	__vector unsigned long long vcrc;
++
++	__vector unsigned long long vconst1, vconst2;
++
++	/* vdata0-vdata7 will contain our data (p). */
++	__vector unsigned long long vdata0, vdata1, vdata2, vdata3, vdata4,
++		vdata5, vdata6, vdata7;
++
++	/* v0-v7 will contain our checksums */
++	__vector unsigned long long v0 = {0,0};
++	__vector unsigned long long v1 = {0,0};
++	__vector unsigned long long v2 = {0,0};
++	__vector unsigned long long v3 = {0,0};
++	__vector unsigned long long v4 = {0,0};
++	__vector unsigned long long v5 = {0,0};
++	__vector unsigned long long v6 = {0,0};
++	__vector unsigned long long v7 = {0,0};
++
++
++	/* Vector auxiliary variables. */
++	__vector unsigned long long va0, va1, va2, va3, va4, va5, va6, va7;
++
++	unsigned int result = 0;
++	unsigned int offset; /* Constant table offset. */
++
++	unsigned long i; /* Counter. */
++	unsigned long chunks;
++
++	unsigned long block_size;
++	int next_block = 0;
++
++	/* Align by 128 bits. The last 128 bit block will be processed at end. */
++	unsigned long length = len & 0xFFFFFFFFFFFFFF80UL;
++
++#ifdef REFLECT
++	vcrc = (__vector unsigned long long)__builtin_pack_vector(0UL, crc);
++#else
++	vcrc = (__vector unsigned long long)__builtin_pack_vector(crc, 0UL);
++
++	/* Shift into top 32 bits */
++	vcrc = (__vector unsigned long long)vec_sld((__vector unsigned char)vcrc,
++        (__vector unsigned char)vzero, 4);
++#endif
++
++	/* Short version. */
++	if (len < 256) {
++		/* Calculate where in the constant table we need to start. */
++		offset = 256 - len;
++
++		vconst1 = vec_ld(offset, vcrc_short_const);
++		vdata0 = vec_ld(0, (__vector unsigned long long*) p);
++		VEC_PERM(vdata0, vdata0, vconst1, vperm_const);
++
++		/* xor initial value*/
++		vdata0 = vec_xor(vdata0, vcrc);
++
++		vdata0 = (__vector unsigned long long) __builtin_crypto_vpmsumw
++				((__vector unsigned int)vdata0, (__vector unsigned int)vconst1);
++		v0 = vec_xor(v0, vdata0);
++
++		for (i = 16; i < len; i += 16) {
++			vconst1 = vec_ld(offset + i, vcrc_short_const);
++			vdata0 = vec_ld(i, (__vector unsigned long long*) p);
++			VEC_PERM(vdata0, vdata0, vconst1, vperm_const);
++			vdata0 = (__vector unsigned long long) __builtin_crypto_vpmsumw
++				((__vector unsigned int)vdata0, (__vector unsigned int)vconst1);
++			v0 = vec_xor(v0, vdata0);
++		}
++	} else {
++
++		/* Load initial values. */
++		vdata0 = vec_ld(0, (__vector unsigned long long*) p);
++		vdata1 = vec_ld(16, (__vector unsigned long long*) p);
++
++		VEC_PERM(vdata0, vdata0, vdata0, vperm_const);
++		VEC_PERM(vdata1, vdata1, vdata1, vperm_const);
++
++		vdata2 = vec_ld(32, (__vector unsigned long long*) p);
++		vdata3 = vec_ld(48, (__vector unsigned long long*) p);
++
++		VEC_PERM(vdata2, vdata2, vdata2, vperm_const);
++		VEC_PERM(vdata3, vdata3, vdata3, vperm_const);
++
++		vdata4 = vec_ld(64, (__vector unsigned long long*) p);
++		vdata5 = vec_ld(80, (__vector unsigned long long*) p);
++
++		VEC_PERM(vdata4, vdata4, vdata4, vperm_const);
++		VEC_PERM(vdata5, vdata5, vdata5, vperm_const);
++
++		vdata6 = vec_ld(96, (__vector unsigned long long*) p);
++		vdata7 = vec_ld(112, (__vector unsigned long long*) p);
++
++		VEC_PERM(vdata6, vdata6, vdata6, vperm_const);
++		VEC_PERM(vdata7, vdata7, vdata7, vperm_const);
++
++		/* xor in initial value */
++		vdata0 = vec_xor(vdata0, vcrc);
++
++		p = (char *)p + 128;
++
++		do {
++			/* Checksum in blocks of MAX_SIZE. */
++			block_size = length;
++			if (block_size > MAX_SIZE) {
++				block_size = MAX_SIZE;
++			}
++
++			length = length - block_size;
++
++			/*
++			* Work out the offset into the constants table to start at. Each
++			* constant is 16 bytes, and it is used against 128 bytes of input
++			* data - 128 / 16 = 8
++			*/
++			offset = (MAX_SIZE/8) - (block_size/8);
++			/* We reduce our final 128 bytes in a separate step */
++			chunks = (block_size/128)-1;
++
++		    vconst1 = vec_ld(offset, vcrc_const);
++
++			va0 = __builtin_crypto_vpmsumd ((__vector unsigned long long)vdata0,
++						(__vector unsigned long long)vconst1);
++			va1 = __builtin_crypto_vpmsumd ((__vector unsigned long long)vdata1,
++						(__vector unsigned long long)vconst1);
++			va2 = __builtin_crypto_vpmsumd ((__vector unsigned long long)vdata2,
++						(__vector unsigned long long)vconst1);
++			va3 = __builtin_crypto_vpmsumd ((__vector unsigned long long)vdata3,
++						(__vector unsigned long long)vconst1);
++			va4 = __builtin_crypto_vpmsumd ((__vector unsigned long long)vdata4,
++						(__vector unsigned long long)vconst1);
++			va5 = __builtin_crypto_vpmsumd ((__vector unsigned long long)vdata5,
++						(__vector unsigned long long)vconst1);
++			va6 = __builtin_crypto_vpmsumd ((__vector unsigned long long)vdata6,
++						(__vector unsigned long long)vconst1);
++			va7 = __builtin_crypto_vpmsumd ((__vector unsigned long long)vdata7,
++						(__vector unsigned long long)vconst1);
++
++			if (chunks > 1) {
++				offset += 16;
++				vconst2 = vec_ld(offset, vcrc_const);
++				GROUP_ENDING_NOP;
++
++				vdata0 = vec_ld(0, (__vector unsigned long long*) p);
++				VEC_PERM(vdata0, vdata0, vdata0, vperm_const);
++
++				vdata1 = vec_ld(16, (__vector unsigned long long*) p);
++				VEC_PERM(vdata1, vdata1, vdata1, vperm_const);
++
++				vdata2 = vec_ld(32, (__vector unsigned long long*) p);
++				VEC_PERM(vdata2, vdata2, vdata2, vperm_const);
++
++				vdata3 = vec_ld(48, (__vector unsigned long long*) p);
++				VEC_PERM(vdata3, vdata3, vdata3, vperm_const);
++
++				vdata4 = vec_ld(64, (__vector unsigned long long*) p);
++				VEC_PERM(vdata4, vdata4, vdata4, vperm_const);
++
++				vdata5 = vec_ld(80, (__vector unsigned long long*) p);
++				VEC_PERM(vdata5, vdata5, vdata5, vperm_const);
++
++				vdata6 = vec_ld(96, (__vector unsigned long long*) p);
++				VEC_PERM(vdata6, vdata6, vdata6, vperm_const);
++
++				vdata7 = vec_ld(112, (__vector unsigned long long*) p);
++				VEC_PERM(vdata7, vdata7, vdata7, vperm_const);
++
++				p = (char *)p + 128;
++
++				/*
++				 * main loop. We modulo schedule it such that it takes three
++				 * iterations to complete - first iteration load, second
++				 * iteration vpmsum, third iteration xor.
++				 */
++				for (i = 0; i < chunks-2; i++) {
++					vconst1 = vec_ld(offset, vcrc_const);
++					offset += 16;
++					GROUP_ENDING_NOP;
++
++					v0 = vec_xor(v0, va0);
++					va0 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata0, (__vector unsigned long long)vconst2);
++					vdata0 = vec_ld(0, (__vector unsigned long long*) p);
++					VEC_PERM(vdata0, vdata0, vdata0, vperm_const);
++					GROUP_ENDING_NOP;
++
++					v1 = vec_xor(v1, va1);
++					va1 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata1, (__vector unsigned long long)vconst2);
++					vdata1 = vec_ld(16, (__vector unsigned long long*) p);
++					VEC_PERM(vdata1, vdata1, vdata1, vperm_const);
++					GROUP_ENDING_NOP;
++
++					v2 = vec_xor(v2, va2);
++					va2 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata2, (__vector unsigned long long)vconst2);
++					vdata2 = vec_ld(32, (__vector unsigned long long*) p);
++					VEC_PERM(vdata2, vdata2, vdata2, vperm_const);
++					GROUP_ENDING_NOP;
++
++					v3 = vec_xor(v3, va3);
++					va3 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata3, (__vector unsigned long long)vconst2);
++					vdata3 = vec_ld(48, (__vector unsigned long long*) p);
++					VEC_PERM(vdata3, vdata3, vdata3, vperm_const);
++
++					vconst2 = vec_ld(offset, vcrc_const);
++					GROUP_ENDING_NOP;
++
++					v4 = vec_xor(v4, va4);
++					va4 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata4, (__vector unsigned long long)vconst1);
++					vdata4 = vec_ld(64, (__vector unsigned long long*) p);
++					VEC_PERM(vdata4, vdata4, vdata4, vperm_const);
++					GROUP_ENDING_NOP;
++
++					v5 = vec_xor(v5, va5);
++					va5 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata5, (__vector unsigned long long)vconst1);
++					vdata5 = vec_ld(80, (__vector unsigned long long*) p);
++					VEC_PERM(vdata5, vdata5, vdata5, vperm_const);
++					GROUP_ENDING_NOP;
++
++					v6 = vec_xor(v6, va6);
++					va6 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata6, (__vector unsigned long long)vconst1);
++					vdata6 = vec_ld(96, (__vector unsigned long long*) p);
++					VEC_PERM(vdata6, vdata6, vdata6, vperm_const);
++					GROUP_ENDING_NOP;
++
++					v7 = vec_xor(v7, va7);
++					va7 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata7, (__vector unsigned long long)vconst1);
++					vdata7 = vec_ld(112, (__vector unsigned long long*) p);
++					VEC_PERM(vdata7, vdata7, vdata7, vperm_const);
++
++					p = (char *)p + 128;
++				}
++
++				/* First cool down*/
++				vconst1 = vec_ld(offset, vcrc_const);
++				offset += 16;
++
++				v0 = vec_xor(v0, va0);
++				va0 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata0, (__vector unsigned long long)vconst1);
++				GROUP_ENDING_NOP;
++
++				v1 = vec_xor(v1, va1);
++				va1 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata1, (__vector unsigned long long)vconst1);
++				GROUP_ENDING_NOP;
++
++				v2 = vec_xor(v2, va2);
++				va2 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata2, (__vector unsigned long long)vconst1);
++				GROUP_ENDING_NOP;
++
++				v3 = vec_xor(v3, va3);
++				va3 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata3, (__vector unsigned long long)vconst1);
++				GROUP_ENDING_NOP;
++
++				v4 = vec_xor(v4, va4);
++				va4 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata4, (__vector unsigned long long)vconst1);
++				GROUP_ENDING_NOP;
++
++				v5 = vec_xor(v5, va5);
++				va5 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata5, (__vector unsigned long long)vconst1);
++				GROUP_ENDING_NOP;
++
++				v6 = vec_xor(v6, va6);
++				va6 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata6, (__vector unsigned long long)vconst1);
++				GROUP_ENDING_NOP;
++
++				v7 = vec_xor(v7, va7);
++				va7 = __builtin_crypto_vpmsumd ((__vector unsigned long
++							long)vdata7, (__vector unsigned long long)vconst1);
++			}/* else */
++
++			/* Second cool down. */
++			v0 = vec_xor(v0, va0);
++			v1 = vec_xor(v1, va1);
++			v2 = vec_xor(v2, va2);
++			v3 = vec_xor(v3, va3);
++			v4 = vec_xor(v4, va4);
++			v5 = vec_xor(v5, va5);
++			v6 = vec_xor(v6, va6);
++			v7 = vec_xor(v7, va7);
++
++#ifdef REFLECT
++			/*
++			 * vpmsumd produces a 96 bit result in the least significant bits
++			 * of the register. Since we are bit reflected we have to shift it
++			 * left 32 bits so it occupies the least significant bits in the
++			 * bit reflected domain.
++			 */
++			v0 = (__vector unsigned long long)vec_sld((__vector unsigned char)v0,
++					(__vector unsigned char)vzero, 4);
++			v1 = (__vector unsigned long long)vec_sld((__vector unsigned char)v1,
++					(__vector unsigned char)vzero, 4);
++			v2 = (__vector unsigned long long)vec_sld((__vector unsigned char)v2,
++					(__vector unsigned char)vzero, 4);
++			v3 = (__vector unsigned long long)vec_sld((__vector unsigned char)v3,
++					(__vector unsigned char)vzero, 4);
++			v4 = (__vector unsigned long long)vec_sld((__vector unsigned char)v4,
++					(__vector unsigned char)vzero, 4);
++			v5 = (__vector unsigned long long)vec_sld((__vector unsigned char)v5,
++					(__vector unsigned char)vzero, 4);
++			v6 = (__vector unsigned long long)vec_sld((__vector unsigned char)v6,
++					(__vector unsigned char)vzero, 4);
++			v7 = (__vector unsigned long long)vec_sld((__vector unsigned char)v7,
++					(__vector unsigned char)vzero, 4);
++#endif
++
++			/* xor with the last 1024 bits. */
++			va0 = vec_ld(0, (__vector unsigned long long*) p);
++			VEC_PERM(va0, va0, va0, vperm_const);
++
++			va1 = vec_ld(16, (__vector unsigned long long*) p);
++			VEC_PERM(va1, va1, va1, vperm_const);
++
++			va2 = vec_ld(32, (__vector unsigned long long*) p);
++			VEC_PERM(va2, va2, va2, vperm_const);
++
++			va3 = vec_ld(48, (__vector unsigned long long*) p);
++			VEC_PERM(va3, va3, va3, vperm_const);
++
++			va4 = vec_ld(64, (__vector unsigned long long*) p);
++			VEC_PERM(va4, va4, va4, vperm_const);
++
++			va5 = vec_ld(80, (__vector unsigned long long*) p);
++			VEC_PERM(va5, va5, va5, vperm_const);
++
++			va6 = vec_ld(96, (__vector unsigned long long*) p);
++			VEC_PERM(va6, va6, va6, vperm_const);
++
++			va7 = vec_ld(112, (__vector unsigned long long*) p);
++			VEC_PERM(va7, va7, va7, vperm_const);
++
++			p = (char *)p + 128;
++
++			vdata0 = vec_xor(v0, va0);
++			vdata1 = vec_xor(v1, va1);
++			vdata2 = vec_xor(v2, va2);
++			vdata3 = vec_xor(v3, va3);
++			vdata4 = vec_xor(v4, va4);
++			vdata5 = vec_xor(v5, va5);
++			vdata6 = vec_xor(v6, va6);
++			vdata7 = vec_xor(v7, va7);
++
++			/* Check if we have more blocks to process */
++			next_block = 0;
++			if (length != 0) {
++				next_block = 1;
++
++			    /* zero v0-v7 */
++				v0 = vec_xor(v0, v0);
++				v1 = vec_xor(v1, v1);
++				v2 = vec_xor(v2, v2);
++				v3 = vec_xor(v3, v3);
++				v4 = vec_xor(v4, v4);
++				v5 = vec_xor(v5, v5);
++				v6 = vec_xor(v6, v6);
++				v7 = vec_xor(v7, v7);
++			}
++			length = length + 128;
++
++		} while (next_block);
++
++		/* Calculate how many bytes we have left. */
++		length = (len & 127);
++
++		/* Calculate where in (short) constant table we need to start. */
++		offset = 128 - length;
++
++		v0 = vec_ld(offset, vcrc_short_const);
++		v1 = vec_ld(offset + 16, vcrc_short_const);
++		v2 = vec_ld(offset + 32, vcrc_short_const);
++		v3 = vec_ld(offset + 48, vcrc_short_const);
++		v4 = vec_ld(offset + 64, vcrc_short_const);
++		v5 = vec_ld(offset + 80, vcrc_short_const);
++		v6 = vec_ld(offset + 96, vcrc_short_const);
++		v7 = vec_ld(offset + 112, vcrc_short_const);
++
++		offset += 128;
++
++		v0 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata0,(__vector unsigned int)v0);
++		v1 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata1,(__vector unsigned int)v1);
++		v2 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata2,(__vector unsigned int)v2);
++		v3 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata3,(__vector unsigned int)v3);
++		v4 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata4,(__vector unsigned int)v4);
++		v5 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata5,(__vector unsigned int)v5);
++		v6 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata6,(__vector unsigned int)v6);
++		v7 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata7,(__vector unsigned int)v7);
++
++		/* Now reduce the tail (0-112 bytes). */
++		for (i = 0; i < length; i+=16) {
++			vdata0 = vec_ld(i,(__vector unsigned long long*)p);
++			VEC_PERM(vdata0, vdata0, vdata0, vperm_const);
++			va0 = vec_ld(offset + i,vcrc_short_const);
++			va0 = (__vector unsigned long long)__builtin_crypto_vpmsumw (
++			(__vector unsigned int)vdata0,(__vector unsigned int)va0);
++			v0 = vec_xor(v0, va0);
++		}
++
++		/* xor all parallel chunks together. */
++		v0 = vec_xor(v0, v1);
++		v2 = vec_xor(v2, v3);
++		v4 = vec_xor(v4, v5);
++		v6 = vec_xor(v6, v7);
++
++		v0 = vec_xor(v0, v2);
++		v4 = vec_xor(v4, v6);
++
++		v0 = vec_xor(v0, v4);
++	}
++
++	/* Barrett Reduction */
++	vconst1 = vec_ld(0, v_Barrett_const);
++	vconst2 = vec_ld(16, v_Barrett_const);
++
++	v1 = (__vector unsigned long long)vec_sld((__vector unsigned char)v0,
++			(__vector unsigned char)v0, 8);
++	v0 = vec_xor(v1,v0);
++
++#ifdef REFLECT
++	/* shift left one bit */
++	__vector unsigned char vsht_splat = vec_splat_u8 (1);
++	v0 = (__vector unsigned long long)vec_sll ((__vector unsigned char)v0,
++			vsht_splat);
++#endif
++
++	v0 = vec_and(v0, vmask_64bit);
++
++#ifndef REFLECT
++
++	/*
++	 * Now for the actual algorithm. The idea is to calculate q,
++	 * the multiple of our polynomial that we need to subtract. By
++	 * doing the computation 2x bits higher (ie 64 bits) and shifting the
++	 * result back down 2x bits, we round down to the nearest multiple.
++	 */
++
++	/* ma */
++	v1 = __builtin_crypto_vpmsumd ((__vector unsigned long long)v0,
++			(__vector unsigned long long)vconst1);
++	/* q = floor(ma/(2^64)) */
++	v1 = (__vector unsigned long long)vec_sld ((__vector unsigned char)vzero,
++			(__vector unsigned char)v1, 8);
++	/* qn */
++	v1 = __builtin_crypto_vpmsumd ((__vector unsigned long long)v1,
++			(__vector unsigned long long)vconst2);
++	/* a - qn, subtraction is xor in GF(2) */
++	v0 = vec_xor (v0, v1);
++	/*
++	 * Get the result into r3. We need to shift it left 8 bytes:
++	 * V0 [ 0 1 2 X ]
++	 * V0 [ 0 X 2 3 ]
++	 */
++	result = __builtin_unpack_vector_1 (v0);
++#else
++
++	/*
++	 * The reflected version of Barrett reduction. Instead of bit
++	 * reflecting our data (which is expensive to do), we bit reflect our
++	 * constants and our algorithm, which means the intermediate data in
++	 * our vector registers goes from 0-63 instead of 63-0. We can reflect
++	 * the algorithm because we don't carry in mod 2 arithmetic.
++	 */
++
++	/* bottom 32 bits of a */
++	v1 = vec_and(v0, vmask_32bit);
++
++	/* ma */
++	v1 = __builtin_crypto_vpmsumd ((__vector unsigned long long)v1,
++			(__vector unsigned long long)vconst1);
++
++	/* bottom 32bits of ma */
++	v1 = vec_and(v1, vmask_32bit);
++	/* qn */
++	v1 = __builtin_crypto_vpmsumd ((__vector unsigned long long)v1,
++			(__vector unsigned long long)vconst2);
++	/* a - qn, subtraction is xor in GF(2) */
++	v0 = vec_xor (v0, v1);
++
++	/*
++	 * Since we are bit reflected, the result (ie the low 32 bits) is in
++	 * the high 32 bits. We just need to shift it left 4 bytes
++	 * V0 [ 0 1 X 3 ]
++	 * V0 [ 0 X 2 3 ]
++	 */
++
++	/* shift result into top 64 bits of */
++	v0 = (__vector unsigned long long)vec_sld((__vector unsigned char)v0,
++        (__vector unsigned char)vzero, 4);
++
++	result = __builtin_unpack_vector_0 (v0);
++#endif
++
++	return result;
++}
+diff --git a/contrib/power/crc32_z_resolver.c b/contrib/power/crc32_z_resolver.c
+new file mode 100644
+index 0000000..f4e9aa4
+--- /dev/null
++++ b/contrib/power/crc32_z_resolver.c
+@@ -0,0 +1,15 @@
++/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++#include "../gcc/zifunc.h"
++#include "power.h"
++
++Z_IFUNC(crc32_z) {
++#ifdef Z_POWER8
++    if (__builtin_cpu_supports("arch_2_07"))
++        return _crc32_z_power8;
++#endif
++
++    return crc32_z_default;
++}
+diff --git a/contrib/power/power.h b/contrib/power/power.h
+index 4d36098..a8a6f0a 100644
+--- a/contrib/power/power.h
++++ b/contrib/power/power.h
+@@ -4,9 +4,13 @@
+  */
+ #include "../../deflate.h"
+ #include "../../zutil.h"
++#include "zconf.h"
+ 
+ uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
+ 
++unsigned long _crc32_z_power8(unsigned long, const Bytef *, z_size_t);
++
+ uInt _longest_match_power9(deflate_state *s, IPos cur_match);
+ 
+ void _slide_hash_power8(deflate_state *s);
++
+diff --git a/crc32.c b/crc32.c
+index 9580440..8a7cd8b 100644
+--- a/crc32.c
++++ b/crc32.c
+@@ -199,6 +199,14 @@ const z_crc_t FAR * ZEXPORT get_crc_table()
+ #define DO8 DO1; DO1; DO1; DO1; DO1; DO1; DO1; DO1
+ 
+ /* ========================================================================= */
++
++#ifdef Z_POWER_OPT
++/* Rename function so resolver can use its symbol. The default version will be
++ * returned by the resolver if the host has no support for an optimized version.
++ */
++#define crc32_z crc32_z_default
++#endif /* Z_POWER_OPT */
++
+ unsigned long ZEXPORT crc32_z(crc, buf, len)
+     unsigned long crc;
+     const unsigned char FAR *buf;
+@@ -233,6 +241,13 @@ unsigned long ZEXPORT crc32_z(crc, buf, len)
+     return crc ^ 0xffffffffUL;
+ }
+ 
++#ifdef Z_POWER_OPT
++#undef crc32_z
++#include "contrib/power/crc32_z_resolver.c"
++#endif /* Z_POWER_OPT */
++
++#endif
++
+ /* ========================================================================= */
+ unsigned long ZEXPORT crc32(crc, buf, len)
+     unsigned long crc;
+diff --git a/test/crc32_test.c b/test/crc32_test.c
+new file mode 100644
+index 0000000..3155553
+--- /dev/null
++++ b/test/crc32_test.c
+@@ -0,0 +1,205 @@
++/* crc32_tes.c -- unit test for crc32 in the zlib compression library
++ * Copyright (C) 1995-2006, 2010, 2011, 2016, 2019 Rogerio Alves
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++#include "zlib.h"
++#include <stdio.h>
++
++#ifdef STDC
++#  include <string.h>
++#  include <stdlib.h>
++#endif
++
++void test_crc32  OF((uLong crc, Byte* buf, z_size_t len, uLong chk, int line));
++int main         OF((void));
++
++typedef struct {
++    int line;
++    uLong crc;
++    char* buf;
++    int len;
++    uLong expect;
++} crc32_test;
++
++void test_crc32(crc, buf, len, chk, line)
++    uLong crc;
++    Byte *buf;
++    z_size_t len;
++    uLong chk;
++    int line;
++{
++    uLong res = crc32(crc, buf, len);
++    if (res != chk) {
++        fprintf(stderr, "FAIL [%d]: crc32 returned 0x%08X expected 0x%08X\n",
++                line, (unsigned int)res, (unsigned int)chk);
++        exit(1);
++    }
++}
++
++static const crc32_test tests[] = {
++  {__LINE__, 0x0, 0x0, 0, 0x0},
++  {__LINE__, 0xffffffff, 0x0, 0, 0x0},
++  {__LINE__, 0x0, 0x0, 255, 0x0}, /*  BZ 174799.  */
++  {__LINE__, 0x0, 0x0, 256, 0x0},
++  {__LINE__, 0x0, 0x0, 257, 0x0},
++  {__LINE__, 0x0, 0x0, 32767, 0x0},
++  {__LINE__, 0x0, 0x0, 32768, 0x0},
++  {__LINE__, 0x0, 0x0, 32769, 0x0},
++  {__LINE__, 0x0, "", 0, 0x0},
++  {__LINE__, 0xffffffff, "", 0, 0xffffffff},
++  {__LINE__, 0x0, "abacus", 6, 0xc3d7115b},
++  {__LINE__, 0x0, "backlog", 7, 0x269205},
++  {__LINE__, 0x0, "campfire", 8, 0x22a515f8},
++  {__LINE__, 0x0, "delta", 5, 0x9643fed9},
++  {__LINE__, 0x0, "executable", 10, 0xd68eda01},
++  {__LINE__, 0x0, "file", 4, 0x8c9f3610},
++  {__LINE__, 0x0, "greatest", 8, 0xc1abd6cd},
++  {__LINE__, 0x0, "hello", 5, 0x3610a686},
++  {__LINE__, 0x0, "inverter", 8, 0xc9e962c9},
++  {__LINE__, 0x0, "jigsaw", 6, 0xce4e3f69},
++  {__LINE__, 0x0, "karate", 6, 0x890be0e2},
++  {__LINE__, 0x0, "landscape", 9, 0xc4e0330b},
++  {__LINE__, 0x0, "machine", 7, 0x1505df84},
++  {__LINE__, 0x0, "nanometer", 9, 0xd4e19f39},
++  {__LINE__, 0x0, "oblivion", 8, 0xdae9de77},
++  {__LINE__, 0x0, "panama", 6, 0x66b8979c},
++  {__LINE__, 0x0, "quest", 5, 0x4317f817},
++  {__LINE__, 0x0, "resource", 8, 0xbc91f416},
++  {__LINE__, 0x0, "secret", 6, 0x5ca2e8e5},
++  {__LINE__, 0x0, "test", 4, 0xd87f7e0c},
++  {__LINE__, 0x0, "ultimate", 8, 0x3fc79b0b},
++  {__LINE__, 0x0, "vector", 6, 0x1b6e485b},
++  {__LINE__, 0x0, "walrus", 6, 0xbe769b97},
++  {__LINE__, 0x0, "xeno", 4, 0xe7a06444},
++  {__LINE__, 0x0, "yelling", 7, 0xfe3944e5},
++  {__LINE__, 0x0, "zlib", 4, 0x73887d3a},
++  {__LINE__, 0x0, "4BJD7PocN1VqX0jXVpWB", 20, 0xd487a5a1},
++  {__LINE__, 0x0, "F1rPWI7XvDs6nAIRx41l", 20, 0x61a0132e},
++  {__LINE__, 0x0, "ldhKlsVkPFOveXgkGtC2", 20, 0xdf02f76},
++  {__LINE__, 0x0, "5KKnGOOrs8BvJ35iKTOS", 20, 0x579b2b0a},
++  {__LINE__, 0x0, "0l1tw7GOcem06Ddu7yn4", 20, 0xf7d16e2d},
++  {__LINE__, 0x0, "MCr47CjPIn9R1IvE1Tm5", 20, 0x731788f5},
++  {__LINE__, 0x0, "UcixbzPKTIv0SvILHVdO", 20, 0x7112bb11},
++  {__LINE__, 0x0, "dGnAyAhRQDsWw0ESou24", 20, 0xf32a0dac},
++  {__LINE__, 0x0, "di0nvmY9UYMYDh0r45XT", 20, 0x625437bb},
++  {__LINE__, 0x0, "2XKDwHfAhFsV0RhbqtvH", 20, 0x896930f9},
++  {__LINE__, 0x0, "ZhrANFIiIvRnqClIVyeD", 20, 0x8579a37},
++  {__LINE__, 0x0, "v7Q9ehzioTOVeDIZioT1", 20, 0x632aa8e0},
++  {__LINE__, 0x0, "Yod5hEeKcYqyhfXbhxj2", 20, 0xc829af29},
++  {__LINE__, 0x0, "GehSWY2ay4uUKhehXYb0", 20, 0x1b08b7e8},
++  {__LINE__, 0x0, "kwytJmq6UqpflV8Y8GoE", 20, 0x4e33b192},
++  {__LINE__, 0x0, "70684206568419061514", 20, 0x59a179f0},
++  {__LINE__, 0x0, "42015093765128581010", 20, 0xcd1013d7},
++  {__LINE__, 0x0, "88214814356148806939", 20, 0xab927546},
++  {__LINE__, 0x0, "43472694284527343838", 20, 0x11f3b20c},
++  {__LINE__, 0x0, "49769333513942933689", 20, 0xd562d4ca},
++  {__LINE__, 0x0, "54979784887993251199", 20, 0x233395f7},
++  {__LINE__, 0x0, "58360544869206793220", 20, 0x2d167fd5},
++  {__LINE__, 0x0, "27347953487840714234", 20, 0x8b5108ba},
++  {__LINE__, 0x0, "07650690295365319082", 20, 0xc46b3cd8},
++  {__LINE__, 0x0, "42655507906821911703", 20, 0xc10b2662},
++  {__LINE__, 0x0, "29977409200786225655", 20, 0xc9a0f9d2},
++  {__LINE__, 0x0, "85181542907229116674", 20, 0x9341357b},
++  {__LINE__, 0x0, "87963594337989416799", 20, 0xf0424937},
++  {__LINE__, 0x0, "21395988329504168551", 20, 0xd7c4c31f},
++  {__LINE__, 0x0, "51991013580943379423", 20, 0xf11edcc4},
++  {__LINE__, 0x0, "*]+@!);({_$;}[_},?{?;(_?,=-][@", 30, 0x40795df4},
++  {__LINE__, 0x0, "_@:_).&(#.[:[{[:)$++-($_;@[)}+", 30, 0xdd61a631},
++  {__LINE__, 0x0, "&[!,[$_==}+.]@!;*(+},[;:)$;)-@", 30, 0xca907a99},
++  {__LINE__, 0x0, "]{.[.+?+[[=;[?}_#&;[=)__$$:+=_", 30, 0xf652deac},
++  {__LINE__, 0x0, "-%.)=/[@].:.(:,()$;=%@-$?]{%+%", 30, 0xaf39a5a9},
++  {__LINE__, 0x0, "+]#$(@&.=:,*];/.!]%/{:){:@(;)$", 30, 0x6bebb4cf},
++  {__LINE__, 0x0, ")-._.:?[&:.=+}(*$/=!.${;(=$@!}", 30, 0x76430bac},
++  {__LINE__, 0x0, ":(_*&%/[[}+,?#$&*+#[([*-/#;%(]", 30, 0x6c80c388},
++  {__LINE__, 0x0, "{[#-;:$/{)(+[}#]/{&!%(@)%:@-$:", 30, 0xd54d977d},
++  {__LINE__, 0x0, "_{$*,}(&,@.)):=!/%(&(,,-?$}}}!", 30, 0xe3966ad5},
++  {__LINE__, 0x0, "e$98KNzqaV)Y:2X?]77].{gKRD4G5{mHZk,Z)SpU%L3FSgv!Wb8MLAFdi{+fp)c,@8m6v)yXg@]HBDFk?.4&}g5_udE*JHCiH=aL", 100, 0xe7c71db9},
++  {__LINE__, 0x0, "r*Fd}ef+5RJQ;+W=4jTR9)R*p!B;]Ed7tkrLi;88U7g@3v!5pk2X6D)vt,.@N8c]@yyEcKi[vwUu@.Ppm@C6%Mv*3Nw}Y,58_aH)", 100, 0xeaa52777},
++  {__LINE__, 0x0, "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&", 100, 0xcd472048},
++  {__LINE__, 0x7a30360d, "abacus", 6, 0xf8655a84},
++  {__LINE__, 0x6fd767ee, "backlog", 7, 0x1ed834b1},
++  {__LINE__, 0xefeb7589, "campfire", 8, 0x686cfca},
++  {__LINE__, 0x61cf7e6b, "delta", 5, 0x1554e4b1},
++  {__LINE__, 0xdc712e2, "executable", 10, 0x761b4254},
++  {__LINE__, 0xad23c7fd, "file", 4, 0x7abdd09b},
++  {__LINE__, 0x85cb2317, "greatest", 8, 0x4ba91c6b},
++  {__LINE__, 0x9eed31b0, "inverter", 8, 0xd5e78ba5},
++  {__LINE__, 0xb94f34ca, "jigsaw", 6, 0x23649109},
++  {__LINE__, 0xab058a2, "karate", 6, 0xc5591f41},
++  {__LINE__, 0x5bff2b7a, "landscape", 9, 0xf10eb644},
++  {__LINE__, 0x605c9a5f, "machine", 7, 0xbaa0a636},
++  {__LINE__, 0x51bdeea5, "nanometer", 9, 0x6af89afb},
++  {__LINE__, 0x85c21c79, "oblivion", 8, 0xecae222b},
++  {__LINE__, 0x97216f56, "panama", 6, 0x47dffac4},
++  {__LINE__, 0x18444af2, "quest", 5, 0x70c2fe36},
++  {__LINE__, 0xbe6ce359, "resource", 8, 0x1471d925},
++  {__LINE__, 0x843071f1, "secret", 6, 0x50c9a0db},
++  {__LINE__, 0xf2480c60, "ultimate", 8, 0xf973daf8},
++  {__LINE__, 0x2d2feb3d, "vector", 6, 0x344ac03d},
++  {__LINE__, 0x7490310a, "walrus", 6, 0x6d1408ef},
++  {__LINE__, 0x97d247d4, "xeno", 4, 0xe62670b5},
++  {__LINE__, 0x93cf7599, "yelling", 7, 0x1b36da38},
++  {__LINE__, 0x73c84278, "zlib", 4, 0x6432d127},
++  {__LINE__, 0x228a87d1, "4BJD7PocN1VqX0jXVpWB", 20, 0x997107d0},
++  {__LINE__, 0xa7a048d0, "F1rPWI7XvDs6nAIRx41l", 20, 0xdc567274},
++  {__LINE__, 0x1f0ded40, "ldhKlsVkPFOveXgkGtC2", 20, 0xdcc63870},
++  {__LINE__, 0xa804a62f, "5KKnGOOrs8BvJ35iKTOS", 20, 0x6926cffd},
++  {__LINE__, 0x508fae6a, "0l1tw7GOcem06Ddu7yn4", 20, 0xb52b38bc},
++  {__LINE__, 0xe5adaf4f, "MCr47CjPIn9R1IvE1Tm5", 20, 0xf83b8178},
++  {__LINE__, 0x67136a40, "UcixbzPKTIv0SvILHVdO", 20, 0xc5213070},
++  {__LINE__, 0xb00c4a10, "dGnAyAhRQDsWw0ESou24", 20, 0xbc7648b0},
++  {__LINE__, 0x2e0c84b5, "di0nvmY9UYMYDh0r45XT", 20, 0xd8123a72},
++  {__LINE__, 0x81238d44, "2XKDwHfAhFsV0RhbqtvH", 20, 0xd5ac5620},
++  {__LINE__, 0xf853aa92, "ZhrANFIiIvRnqClIVyeD", 20, 0xceae099d},
++  {__LINE__, 0x5a692325, "v7Q9ehzioTOVeDIZioT1", 20, 0xb07d2b24},
++  {__LINE__, 0x3275b9f, "Yod5hEeKcYqyhfXbhxj2", 20, 0x24ce91df},
++  {__LINE__, 0x38371feb, "GehSWY2ay4uUKhehXYb0", 20, 0x707b3b30},
++  {__LINE__, 0xafc8bf62, "kwytJmq6UqpflV8Y8GoE", 20, 0x16abc6a9},
++  {__LINE__, 0x9b07db73, "70684206568419061514", 20, 0xae1fb7b7},
++  {__LINE__, 0xe75b214, "42015093765128581010", 20, 0xd4eecd2d},
++  {__LINE__, 0x72d0fe6f, "88214814356148806939", 20, 0x4660ec7},
++  {__LINE__, 0xf857a4b1, "43472694284527343838", 20, 0xfd8afdf7},
++  {__LINE__, 0x54b8e14, "49769333513942933689", 20, 0xc6d1b5f2},
++  {__LINE__, 0xd6aa5616, "54979784887993251199", 20, 0x32476461},
++  {__LINE__, 0x11e63098, "58360544869206793220", 20, 0xd917cf1a},
++  {__LINE__, 0xbe92385, "27347953487840714234", 20, 0x4ad14a12},
++  {__LINE__, 0x49511de0, "07650690295365319082", 20, 0xe37b5c6c},
++  {__LINE__, 0x3db13bc1, "42655507906821911703", 20, 0x7cc497f1},
++  {__LINE__, 0xbb899bea, "29977409200786225655", 20, 0x99781bb2},
++  {__LINE__, 0xf6cd9436, "85181542907229116674", 20, 0x132256a1},
++  {__LINE__, 0x9109e6c3, "87963594337989416799", 20, 0xbfdb2c83},
++  {__LINE__, 0x75770fc, "21395988329504168551", 20, 0x8d9d1e81},
++  {__LINE__, 0x69b1d19b, "51991013580943379423", 20, 0x7b6d4404},
++  {__LINE__, 0xc6132975, "*]+@!);({_$;}[_},?{?;(_?,=-][@", 30, 0x8619f010},
++  {__LINE__, 0xd58cb00c, "_@:_).&(#.[:[{[:)$++-($_;@[)}+", 30, 0x15746ac3},
++  {__LINE__, 0xb63b8caa, "&[!,[$_==}+.]@!;*(+},[;:)$;)-@", 30, 0xaccf812f},
++  {__LINE__, 0x8a45a2b8, "]{.[.+?+[[=;[?}_#&;[=)__$$:+=_", 30, 0x78af45de},
++  {__LINE__, 0xcbe95b78, "-%.)=/[@].:.(:,()$;=%@-$?]{%+%", 30, 0x25b06b59},
++  {__LINE__, 0x4ef8a54b, "+]#$(@&.=:,*];/.!]%/{:){:@(;)$", 30, 0x4ba0d08f},
++  {__LINE__, 0x76ad267a, ")-._.:?[&:.=+}(*$/=!.${;(=$@!}", 30, 0xe26b6aac},
++  {__LINE__, 0x569e613c, ":(_*&%/[[}+,?#$&*+#[([*-/#;%(]", 30, 0x7e2b0a66},
++  {__LINE__, 0x36aa61da, "{[#-;:$/{)(+[}#]/{&!%(@)%:@-$:", 30, 0xb3430dc7},
++  {__LINE__, 0xf67222df, "_{$*,}(&,@.)):=!/%(&(,,-?$}}}!", 30, 0x626c17a},
++  {__LINE__, 0x74b34fd3, "e$98KNzqaV)Y:2X?]77].{gKRD4G5{mHZk,Z)SpU%L3FSgv!Wb8MLAFdi{+fp)c,@8m6v)yXg@]HBDFk?.4&}g5_udE*JHCiH=aL", 100, 0xccf98060},
++  {__LINE__, 0x351fd770, "r*Fd}ef+5RJQ;+W=4jTR9)R*p!B;]Ed7tkrLi;88U7g@3v!5pk2X6D)vt,.@N8c]@yyEcKi[vwUu@.Ppm@C6%Mv*3Nw}Y,58_aH)", 100, 0xd8b95312},
++  {__LINE__, 0xc45aef77, "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&", 100, 0xbb1c9912},
++  {__LINE__, 0xc45aef77, "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&"
++                         "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&"
++                         "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&"
++                         "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&"
++                         "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&"
++                         "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&", 600, 0x888AFA5B}
++};
++
++static const int test_size = sizeof(tests) / sizeof(tests[0]);
++
++int main(void)
++{
++    int i;
++    for (i = 0; i < test_size; i++) {
++        test_crc32(tests[i].crc, (Byte*) tests[i].buf, tests[i].len,
++                   tests[i].expect, tests[i].line);
++    }
++    return 0;
++}
+-- 
+2.21.1
+
