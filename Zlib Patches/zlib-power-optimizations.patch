@@ -1709,7 +1709,7 @@ index 529a468..650c111 100644
 2.21.1
 
 
-From 9addeaad840cc85afc786539c66d9b5ac77a7ee7 Mon Sep 17 00:00:00 2001
+From 0fb0dd96f3749214e32b9fcc08e14989f0dee88d Mon Sep 17 00:00:00 2001
 From: Daniel Black <daniel@linux.vnet.ibm.com>
 Date: Wed, 10 Jan 2018 10:50:39 +1100
 Subject: [PATCH 6/6] Add Power8+ optimized crc32
@@ -1730,9 +1730,9 @@ It makes use of vector instructions to speed up CRC32 algorithm.
  contrib/power/crc32_z_power8.c   |  679 +++++++++++++++++
  contrib/power/crc32_z_resolver.c |   15 +
  contrib/power/power.h            |    4 +
- crc32.c                          |   15 +
+ crc32.c                          |   13 +
  test/crc32_test.c                |  205 +++++
- 11 files changed, 2250 insertions(+), 14 deletions(-)
+ 11 files changed, 2248 insertions(+), 14 deletions(-)
  create mode 100644 contrib/power/clang_workaround.h
  create mode 100644 contrib/power/crc32_constants.h
  create mode 100644 contrib/power/crc32_z_power8.c
@@ -3966,7 +3966,7 @@ index 4d36098..a8a6f0a 100644
  void _slide_hash_power8(deflate_state *s);
 +
 diff --git a/crc32.c b/crc32.c
-index e72636a..cad671f 100644
+index e72636a..d2daabc 100644
 --- a/crc32.c
 +++ b/crc32.c
 @@ -199,6 +199,14 @@ const z_crc_t FAR * ZEXPORT get_crc_table()
@@ -3984,7 +3984,7 @@ index e72636a..cad671f 100644
  unsigned long ZEXPORT crc32_z(crc, buf, len)
      unsigned long crc;
      const unsigned char FAR *buf;
-@@ -233,6 +241,13 @@ unsigned long ZEXPORT crc32_z(crc, buf, len)
+@@ -233,6 +241,11 @@ unsigned long ZEXPORT crc32_z(crc, buf, len)
      return crc ^ 0xffffffffUL;
  }
  
@@ -3992,8 +3992,6 @@ index e72636a..cad671f 100644
 +#undef crc32_z
 +#include "contrib/power/crc32_z_resolver.c"
 +#endif /* Z_POWER_OPT */
-+
-+#endif
 +
  /* ========================================================================= */
  unsigned long ZEXPORT crc32(crc, buf, len)
