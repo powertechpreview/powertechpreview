@@ -4210,3 +4210,31 @@ index 0000000..3155553
 -- 
 2.21.1
 
+
+From 508ebd51412ca0b3977d9edcda1fddeb12e3b028 Mon Sep 17 00:00:00 2001
+From: "Lucas A. M. Magalhaes" <lamm@linux.ibm.com>
+Date: Mon, 27 Apr 2020 15:31:33 -0300
+Subject: [PATCH] Fix zconf.h include path on power.h
+
+The original path result on "No such file or directory" during cross
+compile.
+---
+ contrib/power/power.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/contrib/power/power.h b/contrib/power/power.h
+index a8a6f0a..5c44eb2 100644
+--- a/contrib/power/power.h
++++ b/contrib/power/power.h
+@@ -4,7 +4,7 @@
+  */
+ #include "../../deflate.h"
+ #include "../../zutil.h"
+-#include "zconf.h"
++#include "../../zconf.h"
+ 
+ uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
+ 
+-- 
+2.20.1
+
