@@ -39,8 +39,8 @@ diff -Naur a/libssp/configure b/libssp/configure
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 10999 "configure"
-+#line 11007 "configure"
+-#line 11002 "configure"
++#line 11010 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
@@ -48,8 +48,8 @@ diff -Naur a/libssp/configure b/libssp/configure
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11105 "configure"
-+#line 11113 "configure"
+-#line 11108 "configure"
++#line 11116 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
