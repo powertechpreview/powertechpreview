@@ -1,7 +1,7 @@
-From 45364df5f8ef2f20ec464c4de3799f9ed7a9f4c0 Mon Sep 17 00:00:00 2001
+From 40feaee614da1a3abd3f43040b6c469ebddd54d4 Mon Sep 17 00:00:00 2001
 From: Rogerio Alves <rcardoso@linux.ibm.com>
 Date: Wed, 20 Nov 2019 10:35:40 -0300
-Subject: [PATCH 1/6] Preparation for Power optimizations
+Subject: [PATCH 1/8] Preparation for Power optimizations
 
 Optimized functions for Power will make use of GNU indirect functions,
 an extension to support different implementations of the same function,
@@ -24,10 +24,10 @@ Author: Rogerio Alves <rcardoso@linux.ibm.com>
  create mode 100644 contrib/power/power.h
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index e108c16..760aa62 100644
+index 0fe939d..e762023 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -7,6 +7,7 @@ set(VERSION "1.2.11.1")
+@@ -7,6 +7,7 @@ set(VERSION "1.2.11")
  
  option(ASM686 "Enable building i686 assembly implementation")
  option(AMD64 "Enable building amd64 assembly implementation")
@@ -109,7 +109,7 @@ index e108c16..760aa62 100644
  
  if(MSVC)
 diff --git a/configure b/configure
-index f412795..501a182 100755
+index e974d1f..8ab58a7 100755
 --- a/configure
 +++ b/configure
 @@ -826,6 +826,72 @@ EOF
@@ -186,10 +186,10 @@ index f412795..501a182 100755
  echo >> configure.log
  echo ALL = $ALL >> configure.log
 diff --git a/contrib/README.contrib b/contrib/README.contrib
-index 335e435..12d2f83 100644
+index a411d5c..0dda15b 100644
 --- a/contrib/README.contrib
 +++ b/contrib/README.contrib
-@@ -11,6 +11,10 @@ ada/        by Dmitriy Anisimkov <anisimkov@yahoo.com>
+@@ -19,6 +19,10 @@ asm686/     by Brian Raiter <breadbox@muppetlabs.com>
  blast/      by Mark Adler <madler@alumni.caltech.edu>
          Decompressor for output of PKWare Data Compression Library (DCL)
  
@@ -200,7 +200,7 @@ index 335e435..12d2f83 100644
  delphi/     by Cosmin Truta <cosmint@cs.ubbcluj.ro>
          Support for Delphi and C++ Builder
  
-@@ -42,6 +46,10 @@ minizip/    by Gilles Vollant <info@winimage.com>
+@@ -63,6 +67,10 @@ minizip/    by Gilles Vollant <info@winimage.com>
  pascal/     by Bob Dellaca <bobdl@xtra.co.nz> et al.
          Support for Pascal
  
@@ -288,13 +288,13 @@ index 0000000..b42c7d6
 + * For conditions of distribution and use, see copyright notice in zlib.h
 + */
 -- 
-2.21.1
+2.25.4
 
 
-From c22a4bbfdab3d130629c5edf47ee42f8f527b7ee Mon Sep 17 00:00:00 2001
+From 3be4fc9c7dd3529698aa8aaf5271ed8599e290b7 Mon Sep 17 00:00:00 2001
 From: Rogerio Alves <rcardoso@linux.ibm.com>
 Date: Mon, 9 Dec 2019 14:40:53 -0300
-Subject: [PATCH 2/6] Adler32 vector optimization for Power.
+Subject: [PATCH 2/8] Adler32 vector optimization for Power.
 
 This commit implements a Power (POWER8+) vector optimization for Adler32
 checksum using VSX (vector) instructions. The VSX adler32 checksum is up
@@ -306,15 +306,15 @@ Author: Rogerio Alves <rcardoso@linux.ibm.com>
  Makefile.in                      |   8 ++
  adler32.c                        |  11 ++
  configure                        |   4 +-
- contrib/power/adler32_power8.c   | 196 +++++++++++++++++++++++++++++++
+ contrib/power/adler32_power8.c   | 195 +++++++++++++++++++++++++++++++
  contrib/power/adler32_resolver.c |  15 +++
  contrib/power/power.h            |   3 +
- 7 files changed, 236 insertions(+), 3 deletions(-)
+ 7 files changed, 235 insertions(+), 3 deletions(-)
  create mode 100644 contrib/power/adler32_power8.c
  create mode 100644 contrib/power/adler32_resolver.c
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 760aa62..9e626b8 100644
+index e762023..db6ac70 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -184,7 +184,7 @@ if(CMAKE_COMPILER_IS_GNUCC)
@@ -327,7 +327,7 @@ index 760aa62..9e626b8 100644
                  set_source_files_properties(
                      ${ZLIB_POWER8}
 diff --git a/Makefile.in b/Makefile.in
-index 3413266..fab0e8f 100644
+index 5a77949..e343735 100644
 --- a/Makefile.in
 +++ b/Makefile.in
 @@ -159,6 +159,9 @@ minigzip64.o: $(SRCDIR)test/minigzip.c $(SRCDIR)zlib.h zconf.h
@@ -382,7 +382,7 @@ index d0be438..4bde0fa 100644
  local uLong adler32_combine_(adler1, adler2, len2)
      uLong adler1;
 diff --git a/configure b/configure
-index 501a182..3e8ca19 100755
+index 8ab58a7..2cdd1d4 100755
 --- a/configure
 +++ b/configure
 @@ -869,8 +869,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
@@ -398,10 +398,10 @@ index 501a182..3e8ca19 100755
      echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
 diff --git a/contrib/power/adler32_power8.c b/contrib/power/adler32_power8.c
 new file mode 100644
-index 0000000..473c394
+index 0000000..fdd0864
 --- /dev/null
 +++ b/contrib/power/adler32_power8.c
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,195 @@
 +/*
 + * Adler32 for POWER 8+ using VSX instructions.
 + *
@@ -514,16 +514,15 @@ index 0000000..473c394
 +           6, 5, 4, 3, 2, 1};
 +      const vector unsigned char vsh = vec_splat_u8(4);
 +      const vector unsigned int vmask = {0xffffffff, 0x0, 0x0, 0x0};
-+      vector unsigned int vs1 = vec_xl(0, &s1);
-+      vector unsigned int vs2 = vec_xl(0, &s2);
++      vector unsigned int vs1 = { 0 };
++      vector unsigned int vs2 = { 0 };
 +      vector unsigned int vs1_save = { 0 };
 +      vector unsigned int vsum1, vsum2;
 +      vector unsigned char vbuf;
 +      int n;
 +
-+      /* Zeros the undefined values of vectors vs1, vs2.  */
-+      vs1 = vec_and(vs1, vmask);
-+      vs2 = vec_and(vs2, vmask);
++      vs1[0] = s1;
++      vs2[0] = s2;
 +
 +      /* Do length bigger than NMAX in blocks of NMAX size.  */
 +      while (len >= NMAX) {
@@ -631,13 +630,13 @@ index b42c7d6..74de1ab 100644
 +
 +uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
 -- 
-2.21.1
+2.25.4
 
 
-From 3bc77c89b84cf2930ceb9f9dee31cadf36ea2316 Mon Sep 17 00:00:00 2001
+From 61e1c1eb20e964e14f89c84020e01aa729446eea Mon Sep 17 00:00:00 2001
 From: Rogerio Alves <rcardoso@linux.ibm.com>
 Date: Tue, 10 Dec 2019 15:04:28 -0300
-Subject: [PATCH 3/6] Tests for Adler32 vector optimization for Power.
+Subject: [PATCH 3/8] Tests for Adler32 vector optimization for Power.
 
 This commit add tests for adler32 vector optimization for Power (POWER8+).
 
@@ -650,7 +649,7 @@ Author: Rogerio Alves <rcardoso@linux.ibm.com>
  create mode 100644 test/adler32_test.c
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 9e626b8..8d00f73 100644
+index db6ac70..862e5c1 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -297,6 +297,10 @@ endif()
@@ -678,7 +677,7 @@ index 9e626b8..8d00f73 100644
      target_link_libraries(example64 zlib)
      set_target_properties(example64 PROPERTIES COMPILE_FLAGS "-D_FILE_OFFSET_BITS=64")
 diff --git a/Makefile.in b/Makefile.in
-index fab0e8f..4a6b57d 100644
+index e343735..17a5211 100644
 --- a/Makefile.in
 +++ b/Makefile.in
 @@ -75,11 +75,11 @@ PIC_OBJS = $(PIC_OBJC) $(PIC_OBJA)
@@ -1145,13 +1144,13 @@ index 0000000..8042295
 +    return 0;
 +}
 -- 
-2.21.1
+2.25.4
 
 
-From 596f878f78c68e2d6eda943f17e6ec999856a450 Mon Sep 17 00:00:00 2001
+From ee461375b245977cb4f0bbf5c92f8aa4b7f3afe1 Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Tue, 29 Oct 2019 18:04:11 -0300
-Subject: [PATCH 4/6] Add vectorized longest_match for Power
+Subject: [PATCH 4/8] Add vectorized longest_match for Power
 
 This commit introduces an optimized version of the longest_match
 function for Power processors. It uses VSX instructions to match
@@ -1171,7 +1170,7 @@ Author: Matheus Castanho <msc@linux.ibm.com>
  create mode 100644 contrib/power/longest_match_resolver.c
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 8d00f73..7acec04 100644
+index 862e5c1..a52fa6c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -196,7 +196,8 @@ if(CMAKE_COMPILER_IS_GNUCC)
@@ -1185,7 +1184,7 @@ index 8d00f73..7acec04 100644
                  set_source_files_properties(
                      ${ZLIB_POWER9}
 diff --git a/Makefile.in b/Makefile.in
-index 4a6b57d..9a904c1 100644
+index 17a5211..8b407ae 100644
 --- a/Makefile.in
 +++ b/Makefile.in
 @@ -174,6 +174,9 @@ crc32.o: $(SRCDIR)crc32.c
@@ -1211,7 +1210,7 @@ index 4a6b57d..9a904c1 100644
  	-@mkdir objs 2>/dev/null || test -d objs
  	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/infback.o $(SRCDIR)infback.c
 diff --git a/configure b/configure
-index 3e8ca19..b50fde5 100755
+index 2cdd1d4..2b90134 100755
 --- a/configure
 +++ b/configure
 @@ -878,8 +878,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
@@ -1449,10 +1448,10 @@ index 74de1ab..39f209f 100644
 +
 +uInt _longest_match_power9(deflate_state *s, IPos cur_match);
 diff --git a/deflate.c b/deflate.c
-index 425babc..529a468 100644
+index 1ec7614..1e3aa18 100644
 --- a/deflate.c
 +++ b/deflate.c
-@@ -1238,6 +1238,14 @@ local void lm_init (s)
+@@ -1233,6 +1233,14 @@ local void lm_init (s)
  /* For 80x86 and 680x0, an optimized version will be provided in match.asm or
   * match.S. The code will be functionally equivalent.
   */
@@ -1467,7 +1466,7 @@ index 425babc..529a468 100644
  local uInt longest_match(s, cur_match)
      deflate_state *s;
      IPos cur_match;                             /* current match */
-@@ -1382,6 +1390,11 @@ local uInt longest_match(s, cur_match)
+@@ -1377,6 +1385,11 @@ local uInt longest_match(s, cur_match)
  }
  #endif /* ASMV */
  
@@ -1480,13 +1479,13 @@ index 425babc..529a468 100644
  
  /* ---------------------------------------------------------------------------
 -- 
-2.21.1
+2.25.4
 
 
-From abd0589c76ac1db52cd0e09468d3ce591db31082 Mon Sep 17 00:00:00 2001
+From b3f9640f717d3abdaf82d06857e247bf0ef8c82a Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Wed, 27 Nov 2019 10:18:10 -0300
-Subject: [PATCH 5/6] Add optimized slide_hash for Power
+Subject: [PATCH 5/8] Add optimized slide_hash for Power
 
 Considerable time is spent on deflate.c:slide_hash() during
 deflate. This commit introduces a new slide_hash function that
@@ -1505,15 +1504,15 @@ Author: Matheus Castanho <msc@linux.ibm.com>
  Makefile.in                         |  8 ++++
  configure                           |  4 +-
  contrib/power/power.h               |  2 +
- contrib/power/slide_hash_power8.c   | 70 +++++++++++++++++++++++++++++
+ contrib/power/slide_hash_power8.c   | 63 +++++++++++++++++++++++++++++
  contrib/power/slide_hash_resolver.c | 15 +++++++
- deflate.c                           | 12 +++++
- 7 files changed, 112 insertions(+), 3 deletions(-)
+ deflate.c                           | 12 ++++++
+ 7 files changed, 105 insertions(+), 3 deletions(-)
  create mode 100644 contrib/power/slide_hash_power8.c
  create mode 100644 contrib/power/slide_hash_resolver.c
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 7acec04..6b1521a 100644
+index a52fa6c..65e80b0 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -184,7 +184,9 @@ if(CMAKE_COMPILER_IS_GNUCC)
@@ -1528,7 +1527,7 @@ index 7acec04..6b1521a 100644
                  set_source_files_properties(
                      ${ZLIB_POWER8}
 diff --git a/Makefile.in b/Makefile.in
-index 9a904c1..f26d999 100644
+index 8b407ae..be0cc94 100644
 --- a/Makefile.in
 +++ b/Makefile.in
 @@ -177,6 +177,9 @@ deflate.o: $(SRCDIR)deflate.c
@@ -1554,7 +1553,7 @@ index 9a904c1..f26d999 100644
  	-@mkdir objs 2>/dev/null || test -d objs
  	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/infback.o $(SRCDIR)infback.c
 diff --git a/configure b/configure
-index b50fde5..4ad0b8e 100755
+index 2b90134..3f741ab 100755
 --- a/configure
 +++ b/configure
 @@ -869,8 +869,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
@@ -1580,10 +1579,10 @@ index 39f209f..4d36098 100644
 +void _slide_hash_power8(deflate_state *s);
 diff --git a/contrib/power/slide_hash_power8.c b/contrib/power/slide_hash_power8.c
 new file mode 100644
-index 0000000..770e803
+index 0000000..c5a0eb5
 --- /dev/null
 +++ b/contrib/power/slide_hash_power8.c
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,63 @@
 + /* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
 +  * For conditions of distribution and use, see copyright notice in zlib.h
 +  */
@@ -1599,8 +1598,7 @@ index 0000000..770e803
 +    unsigned n_elems,
 +    Posf *table_end)
 +{
-+    vector unsigned short vw, vm, vc, vs, *vp;
-+    const vector unsigned short v0 = {0};
++    vector unsigned short vw, vm, *vp;
 +    unsigned chunks;
 +
 +    /* Each vector register (chunk) corresponds to 128 bits == 8 Posf,
@@ -1625,17 +1623,11 @@ index 0000000..770e803
 +        vp--;
 +        vm = *vp;
 +
-+        /* m < s->w_size ? */
-+        vc = (vector unsigned short) vec_cmplt(vm,vw);
-+
-+        /* calculate (m - s->w_size)
-+         * Overflowed results will be discarded later  */
-+        vs = vec_sub(vm,vw);
-+
-+        /* Choose 0 or (m - s->w_size) based on comparison */
-+        vm = vec_sel(vs,v0,vc);
-+
-+        *vp = vm;
++        /* This is equivalent to: m >= w_size ? m - w_size : 0
++         * Since we are using a saturated unsigned subtraction, any
++         * values that are > w_size will be set to 0, while the others
++         * will be subtracted by w_size. */
++        *vp = vec_subs(vm,vw);
 +    } while (--chunks);
 +};
 +
@@ -1676,12 +1668,12 @@ index 0000000..54fa1eb
 +    return slide_hash_default;
 +}
 diff --git a/deflate.c b/deflate.c
-index 529a468..650c111 100644
+index 1e3aa18..4f8024d 100644
 --- a/deflate.c
 +++ b/deflate.c
-@@ -196,6 +196,13 @@ local const config configuration_table[10] = {
-                  (unsigned)(s->hash_size-1)*sizeof(*s->head)); \
-     } while (0)
+@@ -193,6 +193,13 @@ local const config configuration_table[10] = {
+     s->head[s->hash_size-1] = NIL; \
+     zmemzero((Bytef *)s->head, (unsigned)(s->hash_size-1)*sizeof(*s->head));
  
 +#ifdef Z_POWER_OPT
 +/* Rename function so resolver can use its symbol. The default version will be
@@ -1693,7 +1685,7 @@ index 529a468..650c111 100644
  /* ===========================================================================
   * Slide the hash table when sliding the window down (could be avoided with 32
   * bit values at the expense of memory usage). We slide even when level == 0 to
-@@ -227,6 +234,11 @@ local void slide_hash(s)
+@@ -224,6 +231,11 @@ local void slide_hash(s)
  #endif
  }
  
@@ -1706,13 +1698,13 @@ index 529a468..650c111 100644
  int ZEXPORT deflateInit_(strm, level, version, stream_size)
      z_streamp strm;
 -- 
-2.21.1
+2.25.4
 
 
-From 0fb0dd96f3749214e32b9fcc08e14989f0dee88d Mon Sep 17 00:00:00 2001
+From 7660dbaa278d778a44d01e679bd51f683d5b23da Mon Sep 17 00:00:00 2001
 From: Daniel Black <daniel@linux.vnet.ibm.com>
 Date: Wed, 10 Jan 2018 10:50:39 +1100
-Subject: [PATCH 6/6] Add Power8+ optimized crc32
+Subject: [PATCH 6/8] Add Power8+ optimized crc32
 
 This commit adds an optimized version for the crc32 function based
 on crc32-vpmsum from https://github.com/antonblanchard/crc32-vpmsum/
@@ -1740,7 +1732,7 @@ It makes use of vector instructions to speed up CRC32 algorithm.
  create mode 100644 test/crc32_test.c
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 6b1521a..edfbd3f 100644
+index 65e80b0..5671289 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -186,6 +186,7 @@ if(CMAKE_COMPILER_IS_GNUCC)
@@ -1763,7 +1755,7 @@ index 6b1521a..edfbd3f 100644
  target_link_libraries(minigzip zlib)
  
 diff --git a/Makefile.in b/Makefile.in
-index f26d999..842d347 100644
+index be0cc94..a9398fe 100644
 --- a/Makefile.in
 +++ b/Makefile.in
 @@ -75,11 +75,11 @@ PIC_OBJS = $(PIC_OBJC) $(PIC_OBJA)
@@ -1911,7 +1903,7 @@ index f26d999..842d347 100644
  deflate.lo: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
  infback.lo inflate.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h $(SRCDIR)inflate.h $(SRCDIR)inffast.h $(SRCDIR)inffixed.h
 diff --git a/configure b/configure
-index 4ad0b8e..800b101 100755
+index 3f741ab..d2729bc 100755
 --- a/configure
 +++ b/configure
 @@ -869,9 +869,9 @@ if tryboth $CC -c $CFLAGS $test.c; then
@@ -1928,10 +1920,10 @@ index 4ad0b8e..800b101 100755
      echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
    fi
 diff --git a/contrib/README.contrib b/contrib/README.contrib
-index 12d2f83..ce6fdbb 100644
+index 0dda15b..2ea5a0d 100644
 --- a/contrib/README.contrib
 +++ b/contrib/README.contrib
-@@ -46,7 +46,8 @@ minizip/    by Gilles Vollant <info@winimage.com>
+@@ -67,7 +67,8 @@ minizip/    by Gilles Vollant <info@winimage.com>
  pascal/     by Bob Dellaca <bobdl@xtra.co.nz> et al.
          Support for Pascal
  
@@ -3966,7 +3958,7 @@ index 4d36098..a8a6f0a 100644
  void _slide_hash_power8(deflate_state *s);
 +
 diff --git a/crc32.c b/crc32.c
-index e72636a..d2daabc 100644
+index 9580440..2be6ad5 100644
 --- a/crc32.c
 +++ b/crc32.c
 @@ -199,6 +199,14 @@ const z_crc_t FAR * ZEXPORT get_crc_table()
@@ -4208,16 +4200,78 @@ index 0000000..3155553
 +    return 0;
 +}
 -- 
-2.21.1
+2.25.4
 
 
-From 508ebd51412ca0b3977d9edcda1fddeb12e3b028 Mon Sep 17 00:00:00 2001
-From: "Lucas A. M. Magalhaes" <lamm@linux.ibm.com>
-Date: Mon, 27 Apr 2020 15:31:33 -0300
-Subject: [PATCH] Fix zconf.h include path on power.h
+From 40ce2d09198b9ded33634a6939ed8cc3d2bec610 Mon Sep 17 00:00:00 2001
+From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
+Date: Wed, 25 Mar 2020 12:16:41 -0300
+Subject: [PATCH 7/8] Fix clang's behavior on versions >= 7
 
-The original path result on "No such file or directory" during cross
-compile.
+Clang 7 changed the behavior of vec_xxpermdi in order to match GCC's
+behavior.  After this change, code that used to work on Clang 6 stopped
+to work on Clang >= 7.
+
+Tested on Clang 6, 7, 8 and 9.
+
+Reference: https://bugs.llvm.org/show_bug.cgi?id=38192
+
+Signed-off-by: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
+---
+ contrib/power/clang_workaround.h | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/contrib/power/clang_workaround.h b/contrib/power/clang_workaround.h
+index b5e7dae..915f7e5 100644
+--- a/contrib/power/clang_workaround.h
++++ b/contrib/power/clang_workaround.h
+@@ -39,7 +39,12 @@ __vector unsigned long long  __builtin_pack_vector (unsigned long __a,
+ 	return __v;
+ }
+ 
+-#ifndef vec_xxpermdi
++/*
++ * Clang 7 changed the behavior of vec_xxpermdi in order to provide the same
++ * behavior of GCC. That means code adapted to Clang >= 7 does not work on
++ * Clang <= 6.  So, fallback to __builtin_unpack_vector() on Clang <= 6.
++ */
++#if !defined vec_xxpermdi || __clang_major__ <= 6
+ 
+ static inline
+ unsigned long __builtin_unpack_vector (__vector unsigned long long __v,
+@@ -62,9 +67,9 @@ static inline
+ unsigned long __builtin_unpack_vector_0 (__vector unsigned long long __v)
+ {
+ 	#if defined(__BIG_ENDIAN__)
+-	return vec_xxpermdi(__v, __v, 0x0)[1];
+-	#else
+ 	return vec_xxpermdi(__v, __v, 0x0)[0];
++	#else
++	return vec_xxpermdi(__v, __v, 0x3)[0];
+ 	#endif
+ }
+ 
+@@ -72,9 +77,9 @@ static inline
+ unsigned long __builtin_unpack_vector_1 (__vector unsigned long long __v)
+ {
+ 	#if defined(__BIG_ENDIAN__)
+-	return vec_xxpermdi(__v, __v, 0x3)[1];
+-	#else
+ 	return vec_xxpermdi(__v, __v, 0x3)[0];
++	#else
++	return vec_xxpermdi(__v, __v, 0x0)[0];
+ 	#endif
+ }
+ #endif /* vec_xxpermdi */
+-- 
+2.25.4
+
+
+From 18799895c3ef7a8f146b689106d549869d2688f6 Mon Sep 17 00:00:00 2001
+From: Matheus Castanho <msc@linux.ibm.com>
+Date: Wed, 29 Apr 2020 12:09:19 -0300
+Subject: [PATCH 8/8] Fix importing of zconf.h
+
 ---
  contrib/power/power.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
@@ -4236,5 +4290,5 @@ index a8a6f0a..5c44eb2 100644
  uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
  
 -- 
-2.20.1
+2.25.4
 
