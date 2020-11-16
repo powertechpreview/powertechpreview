@@ -1,18 +1,31 @@
-From 41c6bbad83856551449b6babcf33d4b46a8bda38 Mon Sep 17 00:00:00 2001
+From fa85d2039fa0bf1a56fe3b0e78b007b85325f3b0 Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Thu, 12 Nov 2020 14:44:31 -0300
-Subject: [PATCH] Increase the timeout of test_subprocess
+Subject: [PATCH] Increase timeouts in test_subprocess
 
 Under heavy load, the subprocess in test_wait_timeout may not complete
 in 3s.  Increase that to 10s in order to reduce spurious failures.
+
+Also, the thread in test_threadsafe_wait may need a bit more time to
+guarantee it overlaps with the main thread and yield the expected
+return code. Increase the timeout from 0.2 to 1 second.
 ---
- Lib/test/test_subprocess.py | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ Lib/test/test_subprocess.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/Lib/test/test_subprocess.py b/Lib/test/test_subprocess.py
-index 373542463f..2a0b3f4469 100644
+index 373542463f..1c3aef9e57 100644
 --- a/Lib/test/test_subprocess.py
 +++ b/Lib/test/test_subprocess.py
+@@ -1277,7 +1277,7 @@ class ProcessTestCase(BaseTestCase):
+         # triggered when both the main thread and this thread are in
+         # the wait() call at once.  The delay here is to allow the
+         # main thread to most likely be blocked in its wait() call.
+-        t = threading.Timer(0.2, kill_proc_timer_thread)
++        t = threading.Timer(1.0, kill_proc_timer_thread)
+         t.start()
+ 
+         if mswindows:
 @@ -1522,7 +1522,7 @@ class RunFuncTestCase(BaseTestCase):
                       "time.sleep(3600)"),
                      # Some heavily loaded buildbots (sparc Debian 3.x) require
