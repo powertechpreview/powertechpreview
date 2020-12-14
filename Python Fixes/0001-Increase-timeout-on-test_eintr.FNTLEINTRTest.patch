@@ -1,0 +1,25 @@
+From 25531f11a15a2a3810230174352c50572a15ae4d Mon Sep 17 00:00:00 2001
+From: Matheus Castanho <msc@linux.ibm.com>
+Date: Mon, 14 Dec 2020 11:34:39 -0300
+Subject: [PATCH 1/1] Increase timeout on test_eintr.FNTLEINTRTest
+
+---
+ Lib/test/eintrdata/eintr_tester.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Lib/test/eintrdata/eintr_tester.py b/Lib/test/eintrdata/eintr_tester.py
+index 606f31b091..cedd602ae2 100644
+--- a/Lib/test/eintrdata/eintr_tester.py
++++ b/Lib/test/eintrdata/eintr_tester.py
+@@ -498,7 +498,7 @@ class FNTLEINTRTest(EINTRBaseTest):
+             with open(support.TESTFN, 'wb') as f:
+                 while True:  # synchronize the subprocess
+                     dt = time.monotonic() - start_time
+-                    if dt > 60.0:
++                    if dt > 120.0:
+                         raise Exception("failed to sync child in %.1f sec" % dt)
+                     try:
+                         lock_func(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+-- 
+2.26.2
+
