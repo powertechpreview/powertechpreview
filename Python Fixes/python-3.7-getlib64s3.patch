@@ -1,3 +1,27 @@
+From c465682666cabb0408aea0b58684e18df862e976 Mon Sep 17 00:00:00 2001
+From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
+Date: Mon, 21 Jan 2019 11:55:16 -0200
+Subject: [PATCH] python-3.7-getlib64s3
+
+---
+ Lib/distutils/command/build.py        |  6 ++--
+ Lib/distutils/command/build_ext.py    |  5 +--
+ Lib/distutils/command/install.py      | 11 +++---
+ Lib/distutils/sysconfig.py            | 14 ++++++--
+ Lib/distutils/tests/test_build.py     |  6 ++--
+ Lib/distutils/tests/test_build_ext.py |  2 +-
+ Lib/distutils/tests/test_install.py   |  4 +--
+ Lib/pydoc.py                          |  1 +
+ Lib/site.py                           |  7 ++--
+ Lib/sysconfig.py                      | 50 +++++++++++++++++++++++++--
+ Lib/test/test_site.py                 |  8 +++--
+ Lib/trace.py                          |  1 +
+ Makefile.pre.in                       | 12 ++++---
+ Misc/python-config.sh.in              |  2 +-
+ Modules/getpath.c                     |  2 +-
+ configure                             |  4 +--
+ 16 files changed, 103 insertions(+), 32 deletions(-)
+
 diff --git a/Lib/distutils/command/build.py b/Lib/distutils/command/build.py
 index a86df0bc7f..941c753ebb 100644
 --- a/Lib/distutils/command/build.py
@@ -153,7 +177,7 @@ index b020a5ba35..7cb1f7d958 100644
  
          # by default, build_lib = build_purelib
 diff --git a/Lib/distutils/tests/test_build_ext.py b/Lib/distutils/tests/test_build_ext.py
-index 88847f9e9a..ca31cdb53d 100644
+index d0428599a4..1681810077 100644
 --- a/Lib/distutils/tests/test_build_ext.py
 +++ b/Lib/distutils/tests/test_build_ext.py
 @@ -137,7 +137,7 @@ class BuildExtTestCase(TempdirManager,
@@ -188,7 +212,7 @@ index 287ab1989e..f556178769 100644
          check_path(cmd.install_platlib, libdir)
          check_path(cmd.install_purelib, libdir)
 diff --git a/Lib/pydoc.py b/Lib/pydoc.py
-index 978e4cd0ba..114cddbc1a 100644
+index 978e4cd0ba..2555da1125 100644
 --- a/Lib/pydoc.py
 +++ b/Lib/pydoc.py
 @@ -366,6 +366,7 @@ def safeimport(path, forceload=0, cache={}):
@@ -199,17 +223,6 @@ index 978e4cd0ba..114cddbc1a 100644
  
  class Doc:
  
-@@ -399,7 +400,9 @@ class Doc:
- 
-     docmodule = docclass = docroutine = docother = docproperty = docdata = fail
- 
--    def getdocloc(self, object, basedir=sysconfig.get_path('stdlib')):
-+    def getdocloc(self, object,
-+                  basedir=os.path.join(sys.base_exec_prefix, get_config_libdir(),
-+                                       "python%d.%d" %  sys.version_info[:2])):
-         """Return the location of module docs or None"""
- 
-         try:
 diff --git a/Lib/site.py b/Lib/site.py
 index 878658827c..b073f75313 100644
 --- a/Lib/site.py
@@ -325,10 +338,10 @@ index d15cec8dbf..186deb5642 100644
          pybuilddir += '-pydebug'
      os.makedirs(pybuilddir, exist_ok=True)
 diff --git a/Lib/test/test_site.py b/Lib/test/test_site.py
-index 568f81da40..a5c95dfdc3 100644
+index 8815c83998..63b22b1dca 100644
 --- a/Lib/test/test_site.py
 +++ b/Lib/test/test_site.py
-@@ -22,6 +22,7 @@ import sysconfig
+@@ -23,6 +23,7 @@ import sysconfig
  import tempfile
  from unittest import mock
  from copy import copy
@@ -336,7 +349,7 @@ index 568f81da40..a5c95dfdc3 100644
  
  # These tests are not particularly useful if Python was invoked with -S.
  # If you add tests that are useful under -S, this skip should be moved
-@@ -269,16 +270,18 @@ class HelperFunctionsTests(unittest.TestCase):
+@@ -270,16 +271,18 @@ class HelperFunctionsTests(unittest.TestCase):
          dirs = site.getsitepackages()
          if os.sep == '/':
              # OS X, Linux, FreeBSD, etc
@@ -357,16 +370,16 @@ index 568f81da40..a5c95dfdc3 100644
              self.assertEqual(dirs[1], wanted)
  
      def test_no_home_directory(self):
-@@ -503,6 +506,7 @@ class ImportSideEffectTests(unittest.TestCase):
+@@ -504,6 +507,7 @@ class ImportSideEffectTests(unittest.TestCase):
  
  class StartupImportTests(unittest.TestCase):
  
 +    @unittest.skip('test not implemented')
      def test_startup_imports(self):
-         # This tests checks which modules are loaded by Python when it
-         # initially starts upon startup.
+         # Get sys.path in isolated mode (python3 -I)
+         popen = subprocess.Popen([sys.executable, '-I', '-c',
 diff --git a/Lib/trace.py b/Lib/trace.py
-index c804a0d756..c866fde3a9 100755
+index c804a0d756..4f2b70a804 100755
 --- a/Lib/trace.py
 +++ b/Lib/trace.py
 @@ -61,6 +61,7 @@ import gc
@@ -377,20 +390,6 @@ index c804a0d756..c866fde3a9 100755
  
  import threading
  
-@@ -672,8 +673,11 @@ def main():
-     opts = parser.parse_args()
- 
-     if opts.ignore_dir:
--        _prefix = sysconfig.get_path("stdlib")
--        _exec_prefix = sysconfig.get_path("platstdlib")
-+        rel_path = 'lib', 'python{0.major}.{0.minor}'.format(sys.version_info)
-+        libdir = get_config_libdir()
-+        rel_path = libdir, 'python{0.major}.{0.minor}'.format(sys.version_info)
-+        _prefix = os.path.join(sys.base_prefix, *rel_path)
-+        _exec_prefix = os.path.join(sys.base_exec_prefix, *rel_path)
- 
-     def parse_ignore_dir(s):
-         s = os.path.expanduser(os.path.expandvars(s))
 diff --git a/Makefile.pre.in b/Makefile.pre.in
 index 35ca1a8684..385fca8b58 100644
 --- a/Makefile.pre.in
@@ -456,10 +455,10 @@ index a3c479ce57..d1ea7d31f8 100644
  SO="@EXT_SUFFIX@"
  PYTHONFRAMEWORK="@PYTHONFRAMEWORK@"
 diff --git a/Modules/getpath.c b/Modules/getpath.c
-index ba8d74b4a0..5d52c7bc32 100644
+index 35f9e31d1e..a121553772 100644
 --- a/Modules/getpath.c
 +++ b/Modules/getpath.c
-@@ -912,7 +912,7 @@ calculate_init(PyCalculatePath *calculate,
+@@ -908,7 +908,7 @@ calculate_init(PyCalculatePath *calculate,
      if (!calculate->exec_prefix) {
          return DECODE_LOCALE_ERR("EXEC_PREFIX define", len);
      }
@@ -469,10 +468,10 @@ index ba8d74b4a0..5d52c7bc32 100644
          return DECODE_LOCALE_ERR("EXEC_PREFIX define", len);
      }
 diff --git a/configure b/configure
-index b769d59629..0350ceed5f 100755
+index 829dd69bb8..a6268e95fc 100755
 --- a/configure
 +++ b/configure
-@@ -15266,9 +15266,9 @@ $as_echo "$LDVERSION" >&6; }
+@@ -15295,9 +15295,9 @@ $as_echo "$LDVERSION" >&6; }
  
  
  if test x$PLATFORM_TRIPLET = x; then
@@ -484,3 +483,6 @@ index b769d59629..0350ceed5f 100755
  fi
  
  
+-- 
+2.29.2
+
