@@ -1,0 +1,50 @@
+From 6bb23f58c933912c21d39b272a27727d2109b272 Mon Sep 17 00:00:00 2001
+From: "Lucas A. M. Magalhaes" <lamm@linux.ibm.com>
+Date: Wed, 10 Mar 2021 17:29:47 -0300
+Subject: [PATCH] powerpc: Remove forced runpath from --with-advance-toolchain
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Historically this was added to fill gaps from ld.so.cache on early AT
+releases. This now are just causing errors and rework. Since AT5.0 the
+AT's ld.so is using a correctly configured ld.so.cache and sets the
+DT_INTERP to AT's ld.so. This two factors are sufficient for an AT
+builded program to get the correct libraries.
+
+GCC congured with --with-advance-toolchain has issues building GlibC
+releases because it adds DT_RUNPATH to ld.so and that's unsupported.
+
+2021-03-11  Lucas A. M. Magalhães  <lamm@linux.ibm.com>
+
+gcc/
+	* config.gcc (powerpc*-*-*): Remove -rpath from
+	  --with-advance-toochain
+---
+ gcc/config.gcc | 10 ----------
+ 1 file changed, 10 deletions(-)
+
+diff --git a/gcc/config.gcc b/gcc/config.gcc
+index 17fea83b2e4..6827b799dc6 100644
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -5071,16 +5071,6 @@ case "${target}" in
+ 			(at="/opt/$with_advance_toolchain"
+ 			 echo "/* Use Advance Toolchain $at */"
+ 			 echo
+-			 echo "#undef  LINK_OS_EXTRA_SPEC32"
+-			 echo "#define LINK_OS_EXTRA_SPEC32" \
+-			      "\"%(link_os_new_dtags)" \
+-			      "-rpath $prefix/lib -rpath $at/lib\""
+-			 echo
+-			 echo "#undef  LINK_OS_EXTRA_SPEC64"
+-			 echo "#define LINK_OS_EXTRA_SPEC64" \
+-			      "\"%(link_os_new_dtags)" \
+-			      "-rpath $prefix/lib64 -rpath $at/lib64\""
+-			 echo
+ 			 echo "#undef  LINK_OS_NEW_DTAGS_SPEC"
+ 			 echo "#define LINK_OS_NEW_DTAGS_SPEC" \
+ 			      "\"--enable-new-dtags\""
+-- 
+2.29.2
+
