@@ -1,0 +1,39 @@
+From fffa6c540a71d5443e7ffca5f75821b1a78c62db Mon Sep 17 00:00:00 2001
+From: Michael Meissner via Gcc-patches <gcc-patches@gcc.gnu.org>
+Date: Mon, 29 Mar 2021 23:28:15 -0400
+Subject: [PATCH] Honor --disable-decimal-float on PowerPC Decimal/Float128
+ conversions
+
+This patch fixes the problem that the Decimal <-> Float128 conversions
+were built even if the user configured GCC with --disable-decimal-float.
+
+libgcc/
+2021-03-29  Florian Weimer  <fweimer@redhat.com>
+	    Michael Meissner  <meissner@linux.ibm.com>
+        * config/rs6000/t-float128 (fp128_ppc_funcs): Add decimal floating
+        point functions for $(decimal_float) only.
+---
+ libgcc/config/rs6000/t-float128 | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/libgcc/config/rs6000/t-float128 b/libgcc/config/rs6000/t-float128
+index 8b089d4433c..d745f0d82e1 100644
+--- a/libgcc/config/rs6000/t-float128
++++ b/libgcc/config/rs6000/t-float128
+@@ -33,8 +33,11 @@ ibm128_dec_funcs	= _tf_to_sd _tf_to_dd _tf_to_td \
+ # New functions for software emulation
+ fp128_ppc_funcs		= floattikf floatuntikf fixkfti fixunskfti \
+ 			  extendkftf2-sw trunctfkf2-sw \
+-			  sfp-exceptions _mulkc3 _divkc3 _powikf2 \
+-			  $(fp128_dec_funcs)
++			  sfp-exceptions _mulkc3 _divkc3 _powikf2
++
++ifeq ($(decimal_float),yes)
++fp128_ppc_funcs        += $(fp128_dec_funcs)
++endif
+ 
+ fp128_ppc_src		= $(addprefix $(srcdir)/config/rs6000/,$(addsuffix \
+ 				.c,$(fp128_ppc_funcs)))
+-- 
+2.30.2
+
