@@ -1,0 +1,71 @@
+diff --git a/gold/config.in b/gold/config.in
+index aaad1bee706..ca0b9d2e2f9 100644
+--- a/gold/config.in
++++ b/gold/config.in
+@@ -124,6 +124,9 @@
+ /* Define to 1 if you have the `mallinfo' function. */
+ #undef HAVE_MALLINFO
+ 
++/* Define to 1 if you have the `mallinfo2' function. */
++#undef HAVE_MALLINFO2
++
+ /* Define to 1 if you have the <memory.h> header file. */
+ #undef HAVE_MEMORY_H
+ 
+diff --git a/gold/configure b/gold/configure
+index e264a65ac3c..b9f062b68eb 100755
+--- a/gold/configure
++++ b/gold/configure
+@@ -9967,7 +9967,7 @@ case "$ac_cv_search_dlopen" in
+ esac
+ 
+ 
+-for ac_func in mallinfo posix_fallocate fallocate readv sysconf times mkdtemp
++for ac_func in mallinfo mallinfo2 posix_fallocate fallocate readv sysconf times mkdtemp
+ do :
+   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
+ ac_fn_cxx_check_func "$LINENO" "$ac_func" "$as_ac_var"
+diff --git a/gold/configure.ac b/gold/configure.ac
+index eed45664093..1716a779416 100644
+--- a/gold/configure.ac
++++ b/gold/configure.ac
+@@ -636,7 +636,7 @@ case "$ac_cv_search_dlopen" in
+ esac
+ AC_SUBST(DLOPEN_LIBS)
+ 
+-AC_CHECK_FUNCS(mallinfo posix_fallocate fallocate readv sysconf times mkdtemp)
++AC_CHECK_FUNCS(mallinfo mallinfo2 posix_fallocate fallocate readv sysconf times mkdtemp)
+ AC_CHECK_DECLS([basename, ffs, asprintf, vasprintf, snprintf, vsnprintf, strverscmp, strndup, memmem])
+ 
+ # Use of ::std::tr1::unordered_map::rehash causes undefined symbols
+diff --git a/gold/main.cc b/gold/main.cc
+index ea77ca3ebbe..ff44cbb7add 100644
+--- a/gold/main.cc
++++ b/gold/main.cc
+@@ -25,7 +25,7 @@
+ #include <cstdio>
+ #include <cstring>
+ 
+-#ifdef HAVE_MALLINFO
++#if defined(HAVE_MALLINFO) || defined(HAVE_MALLINFO2)
+ #include <malloc.h>
+ #endif
+ 
+@@ -290,11 +290,16 @@ main(int argc, char** argv)
+               elapsed.sys / 1000, (elapsed.sys % 1000) * 1000,
+               elapsed.wall / 1000, (elapsed.wall % 1000) * 1000);
+ 
+-#ifdef HAVE_MALLINFO
++#if defined(HAVE_MALLINFO2)
++      struct mallinfo2 m = mallinfo2();
++      fprintf(stderr, _("%s: total space allocated by malloc: %lld bytes\n"),
++	      program_name, static_cast<long long>(m.arena));
++#elif defined(HAVE_MALLINFO)
+       struct mallinfo m = mallinfo();
+       fprintf(stderr, _("%s: total space allocated by malloc: %lld bytes\n"),
+ 	      program_name, static_cast<long long>(m.arena));
+ #endif
++
+       File_read::print_stats();
+       Archive::print_stats();
+       Lib_group::print_stats();
