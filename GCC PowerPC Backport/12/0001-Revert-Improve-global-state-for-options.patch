@@ -1,0 +1,109 @@
+From 6bc2a510981d4edcdd0dfcdcac42781ff59a09b6 Mon Sep 17 00:00:00 2001
+From: Matheus Castanho <msc@linux.ibm.com>
+Date: Tue, 29 Jun 2021 10:42:12 -0300
+Subject: [PATCH] Revert "Improve global state for options."
+
+This reverts commit ebd5e86c0f41dc1d692f9b2b68a510b1f6835a3e.
+---
+ gcc/c-family/c-attribs.c |  9 ---------
+ gcc/c-family/c-pragma.c  | 13 +++++--------
+ gcc/optc-save-gen.awk    |  8 +++++++-
+ 3 files changed, 12 insertions(+), 18 deletions(-)
+
+diff --git a/gcc/c-family/c-attribs.c b/gcc/c-family/c-attribs.c
+index e60fb31d8c8..1e14e0ba176 100644
+--- a/gcc/c-family/c-attribs.c
++++ b/gcc/c-family/c-attribs.c
+@@ -5371,8 +5371,6 @@ handle_optimize_attribute (tree *node, tree name, tree args,
+ 
+       /* Save current options.  */
+       cl_optimization_save (&cur_opts, &global_options, &global_options_set);
+-      tree prev_target_node = build_target_option_node (&global_options,
+-							&global_options_set);
+ 
+       /* If we previously had some optimization options, use them as the
+ 	 default.  */
+@@ -5395,17 +5393,10 @@ handle_optimize_attribute (tree *node, tree name, tree args,
+       parse_optimize_options (args, true);
+       DECL_FUNCTION_SPECIFIC_OPTIMIZATION (*node)
+ 	= build_optimization_node (&global_options, &global_options_set);
+-      tree target_node = build_target_option_node (&global_options,
+-						   &global_options_set);
+-      if (prev_target_node != target_node)
+-	DECL_FUNCTION_SPECIFIC_TARGET (*node) = target_node;
+ 
+       /* Restore current options.  */
+       cl_optimization_restore (&global_options, &global_options_set,
+ 			       &cur_opts);
+-      cl_target_option_restore (&global_options, &global_options_set,
+-				TREE_TARGET_OPTION (prev_target_node));
+-
+       if (saved_global_options != NULL)
+ 	{
+ 	  cl_optimization_compare (saved_global_options, &global_options);
+diff --git a/gcc/c-family/c-pragma.c b/gcc/c-family/c-pragma.c
+index f46b5b93c29..d6e14ba6df9 100644
+--- a/gcc/c-family/c-pragma.c
++++ b/gcc/c-family/c-pragma.c
+@@ -918,12 +918,6 @@ handle_pragma_target(cpp_reader *ARG_UNUSED(dummy))
+ 
+       if (targetm.target_option.pragma_parse (args, NULL_TREE))
+ 	current_target_pragma = chainon (current_target_pragma, args);
+-
+-      /* A target pragma can also influence optimization options. */
+-      tree current_optimize
+-	= build_optimization_node (&global_options, &global_options_set);
+-      if (current_optimize != optimization_current_node)
+-	optimization_current_node = current_optimize;
+     }
+ }
+ 
+@@ -1093,7 +1087,10 @@ handle_pragma_pop_options (cpp_reader *ARG_UNUSED(dummy))
+ 
+   if (p->optimize_binary != optimization_current_node)
+     {
+-      c_cpp_builtins_optimize_pragma (parse_in, optimization_current_node,
++      tree old_optimize = optimization_current_node;
++      cl_optimization_restore (&global_options, &global_options_set,
++			       TREE_OPTIMIZATION (p->optimize_binary));
++      c_cpp_builtins_optimize_pragma (parse_in, old_optimize,
+ 				      p->optimize_binary);
+       optimization_current_node = p->optimize_binary;
+     }
+@@ -1602,7 +1599,7 @@ init_pragma (void)
+ #endif
+ 
+   global_sso = default_sso;
+-  c_register_pragma (0, "scalar_storage_order", 
++  c_register_pragma (0, "scalar_storage_order",
+ 		     handle_pragma_scalar_storage_order);
+ 
+   /* Allow plugins to register their own pragmas. */
+diff --git a/gcc/optc-save-gen.awk b/gcc/optc-save-gen.awk
+index e363ac731e1..177ab78c139 100644
+--- a/gcc/optc-save-gen.awk
++++ b/gcc/optc-save-gen.awk
+@@ -1438,13 +1438,19 @@ print "{"
+ checked_options["flag_merge_constants"]++
+ checked_options["param_max_fields_for_field_sensitive"]++
+ checked_options["flag_omit_frame_pointer"]++
++checked_options["unroll_only_small_loops"]++
+ # arc exceptions
+ checked_options["TARGET_ALIGN_CALL"]++
+ checked_options["TARGET_CASE_VECTOR_PC_RELATIVE"]++
+ checked_options["arc_size_opt_level"]++
+ # arm exceptions
+ checked_options["arm_fp16_format"]++
+-
++checked_options["flag_ipa_ra"]++
++# s390 exceptions
++checked_options["param_max_completely_peel_times"]++
++checked_options["param_max_completely_peeled_insns"]++
++checked_options["param_max_unroll_times"]++
++checked_options["param_max_unrolled_insns"]++
+ 
+ for (i = 0; i < n_opts; i++) {
+ 	name = var_name(flags[i]);
+-- 
+2.31.1
+
