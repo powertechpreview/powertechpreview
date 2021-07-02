@@ -1,0 +1,32 @@
+From 88be4ca3a56e58346dde0df009ef80853ba3cbea Mon Sep 17 00:00:00 2001
+From: Matheus Castanho <msc@linux.ibm.com>
+Date: Tue, 29 Jun 2021 17:41:09 -0300
+Subject: [PATCH] libstdc++: Only use __gthread_yield if gthreads is available
+
+When building libstdc++ with --disable-threads g++ complains that no
+__gthread_yield declaration is available. The code should check
+_GLIBCXX_HAS_GTHREADS before trying to use it.
+
+libstdc++-v3/ChangeLog:
+
+        * include/std/mutex (__lock_impl): Check _GLIBCXX_HAS_GTHREADS before
+        using __gthread_yield
+---
+ libstdc++-v3/include/std/mutex | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/libstdc++-v3/include/std/mutex b/libstdc++-v3/include/std/mutex
+index eeb51fdb840..7ab4ee12690 100644
+--- a/libstdc++-v3/include/std/mutex
++++ b/libstdc++-v3/include/std/mutex
+@@ -618,7 +618,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 		      return;
+ 		    }
+ 		}
+-#ifdef _GLIBCXX_USE_SCHED_YIELD
++#if defined _GLIBCXX_HAS_GTHREADS && defined _GLIBCXX_USE_SCHED_YIELD
+ 		__gthread_yield();
+ #endif
+ 		constexpr auto __n = 1 + sizeof...(_L1);
+--
+2.31.1
