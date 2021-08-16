@@ -35,21 +35,21 @@ diff -Naur a/libssp/configure b/libssp/configure
  if test "x$ssp_have_usable_vsnprintf" = xdefine; then
    { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
  $as_echo "yes" >&6; }
-@@ -10992,7 +11000,7 @@
+@@ -10989,7 +10989,7 @@
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11003 "configure"
-+#line 11011 "configure"
+-#line 10992 "configure"
++#line 11000 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -11098,7 +11106,7 @@
+@@ -11095,7 +11095,7 @@
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11109 "configure"
-+#line 11117 "configure"
+-#line 11098 "configure"
++#line 11106 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
