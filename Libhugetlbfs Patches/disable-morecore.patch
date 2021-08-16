@@ -1,4 +1,4 @@
-From f2a826773f2fec42f077898d6b1ccb551b06106e Mon Sep 17 00:00:00 2001
+From ee373615acc9d02a842f1c1a4c5fef132840a267 Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Thu, 12 Aug 2021 16:38:46 -0300
 Subject: [PATCH] Disable hugepage-backed heap if __morecore is not available
@@ -19,7 +19,7 @@ Signed-off-by: Matheus Castanho <msc@linux.ibm.com>
  2 files changed, 14 insertions(+)
 
 diff --git a/Makefile b/Makefile
-index dfbd686..9aba83c 100644
+index dfbd686..38aef51 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -193,6 +193,12 @@ endif
@@ -27,7 +27,7 @@ index dfbd686..9aba83c 100644
  endif
  
 +# glibc 2.34 removed __morecore, so it may not be available with recent versions
-+HAS_MORECORE := $(shell echo -e '\#include <malloc.h>\nvoid * morecore_exists() { return &__morecore; }' | $(CC) -c -xc -o /dev/null - &> /dev/null)
++HAS_MORECORE := $(shell /usr/bin/echo -e '\#include <malloc.h>\nvoid * morecore_exists() { return &__morecore; }' | $(CC) -c -xc -o /dev/null - &> /dev/null)
 +ifeq ($(.SHELLSTATUS),0)
 +CFLAGS += -DHAS_MORECORE
 +endif
