@@ -1,0 +1,73 @@
+From 72af5fb7683f2e2f8504db5de8d444271b3a6959 Mon Sep 17 00:00:00 2001
+From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
+Date: Thu, 26 Aug 2021 14:00:09 -0300
+Subject: [PATCH] Revert "libstdc++: Add conditional noexcept to std::exchange"
+
+This reverts commit 42cfa1bd6c05f2dc0d6269155950d16064310f56.
+---
+ libstdc++-v3/include/std/utility              |  2 -
+ .../testsuite/20_util/exchange/noexcept.cc    | 39 -------------------
+ 2 files changed, 41 deletions(-)
+ delete mode 100644 libstdc++-v3/testsuite/20_util/exchange/noexcept.cc
+
+diff --git a/libstdc++-v3/include/std/utility b/libstdc++-v3/include/std/utility
+index 69d274ff194..c2697f87dc5 100644
+--- a/libstdc++-v3/include/std/utility
++++ b/libstdc++-v3/include/std/utility
+@@ -91,8 +91,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     _GLIBCXX20_CONSTEXPR
+     inline _Tp
+     exchange(_Tp& __obj, _Up&& __new_val)
+-    noexcept(__and_<is_nothrow_move_constructible<_Tp>,
+-		    is_nothrow_assignable<_Tp&, _Up>>::value)
+     { return std::__exchange(__obj, std::forward<_Up>(__new_val)); }
+ 
+ #if __cplusplus >= 201703L
+diff --git a/libstdc++-v3/testsuite/20_util/exchange/noexcept.cc b/libstdc++-v3/testsuite/20_util/exchange/noexcept.cc
+deleted file mode 100644
+index 6363a4d4c06..00000000000
+--- a/libstdc++-v3/testsuite/20_util/exchange/noexcept.cc
++++ /dev/null
+@@ -1,39 +0,0 @@
+-// { dg-options "-std=gnu++2a" }
+-// { dg-do compile { target c++2a } }
+-
+-#include <utility>
+-
+-// This is a GCC extension. std::exchange is not required to be noexcept.
+-
+-static_assert( noexcept( std::exchange(std::declval<int&>(), 1) ) );
+-
+-struct X
+-{
+-  X(const X&);
+-  X(X&&) noexcept;
+-  X& operator=(const X&);
+-  X& operator=(X&&) noexcept;
+-  X& operator=(int);
+-};
+-
+-extern X x, x2;
+-static_assert( noexcept( std::exchange(x, std::move(x2)) ) );
+-static_assert( ! noexcept( std::exchange(x, 1) ) );
+-
+-struct Y
+-{
+-  Y(Y&&) noexcept;
+-  Y& operator=(Y&&);
+-};
+-
+-extern Y y, y2;
+-static_assert( ! noexcept( std::exchange(y, std::move(y2)) ) );
+-
+-struct Z
+-{
+-  Z(Z&&)noexcept;
+-  Z& operator=(Z&&) ;
+-};
+-
+-extern Z z, z2;
+-static_assert( ! noexcept( std::exchange(z, std::move(z2)) ) );
+-- 
+2.31.1
+

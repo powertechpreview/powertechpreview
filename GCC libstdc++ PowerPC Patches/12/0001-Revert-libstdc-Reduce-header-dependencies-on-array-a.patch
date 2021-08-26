@@ -1,0 +1,1153 @@
+From 04eac3472f31008f4e029ec78ecf6702496263de Mon Sep 17 00:00:00 2001
+From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
+Date: Thu, 26 Aug 2021 14:57:11 -0300
+Subject: [PATCH] Revert "libstdc++: Reduce header dependencies on <array> and
+ <utility>"
+
+This reverts commit 261d5a4a459bd49942e53bc83334ccc7154a09d5.
+---
+ libstdc++-v3/include/Makefile.am              |   1 -
+ libstdc++-v3/include/Makefile.in              |   1 -
+ libstdc++-v3/include/bits/ranges_util.h       |   1 -
+ libstdc++-v3/include/bits/stl_pair.h          | 155 +--------
+ libstdc++-v3/include/bits/utility.h           | 205 ------------
+ libstdc++-v3/include/std/any                  |   3 +-
+ libstdc++-v3/include/std/array                |  30 +-
+ libstdc++-v3/include/std/memory_resource      |   6 +-
+ libstdc++-v3/include/std/optional             |   4 +-
+ libstdc++-v3/include/std/tuple                |  36 +-
+ libstdc++-v3/include/std/type_traits          |   7 +
+ libstdc++-v3/include/std/utility              | 308 +++++++++++++++++-
+ libstdc++-v3/include/std/variant              |   6 +-
+ libstdc++-v3/include/std/version              |   2 +-
+ .../testsuite/20_util/optional/84601.cc       |   1 -
+ .../uninitialized_fill/constrained.cc         |   1 -
+ .../array/tuple_interface/get_neg.cc          |   6 +-
+ .../testsuite/std/ranges/access/cbegin.cc     |   1 -
+ .../testsuite/std/ranges/access/cend.cc       |   1 -
+ .../testsuite/std/ranges/access/end.cc        |   1 -
+ .../testsuite/std/ranges/single_view.cc       |   1 -
+ 21 files changed, 344 insertions(+), 433 deletions(-)
+ delete mode 100644 libstdc++-v3/include/bits/utility.h
+
+diff --git a/libstdc++-v3/include/Makefile.am b/libstdc++-v3/include/Makefile.am
+index 15c0ad8dd03..4ce07571436 100644
+--- a/libstdc++-v3/include/Makefile.am
++++ b/libstdc++-v3/include/Makefile.am
+@@ -234,7 +234,6 @@ bits_headers = \
+ 	${bits_srcdir}/unordered_set.h \
+ 	${bits_srcdir}/uses_allocator.h \
+ 	${bits_srcdir}/uses_allocator_args.h \
+-	${bits_srcdir}/utility.h \
+ 	${bits_srcdir}/valarray_array.h \
+ 	${bits_srcdir}/valarray_array.tcc \
+ 	${bits_srcdir}/valarray_before.h \
+diff --git a/libstdc++-v3/include/Makefile.in b/libstdc++-v3/include/Makefile.in
+index 9d559e2806c..666aa42b285 100644
+--- a/libstdc++-v3/include/Makefile.in
++++ b/libstdc++-v3/include/Makefile.in
+@@ -584,7 +584,6 @@ bits_headers = \
+ 	${bits_srcdir}/unordered_set.h \
+ 	${bits_srcdir}/uses_allocator.h \
+ 	${bits_srcdir}/uses_allocator_args.h \
+-	${bits_srcdir}/utility.h \
+ 	${bits_srcdir}/valarray_array.h \
+ 	${bits_srcdir}/valarray_array.tcc \
+ 	${bits_srcdir}/valarray_before.h \
+diff --git a/libstdc++-v3/include/bits/ranges_util.h b/libstdc++-v3/include/bits/ranges_util.h
+index 4e87cfc6ef1..74ee9c349bb 100644
+--- a/libstdc++-v3/include/bits/ranges_util.h
++++ b/libstdc++-v3/include/bits/ranges_util.h
+@@ -32,7 +32,6 @@
+ 
+ #if __cplusplus > 201703L
+ # include <bits/ranges_base.h>
+-# include <bits/utility.h>
+ 
+ #ifdef __cpp_lib_ranges
+ namespace std _GLIBCXX_VISIBILITY(default)
+diff --git a/libstdc++-v3/include/bits/stl_pair.h b/libstdc++-v3/include/bits/stl_pair.h
+index 329485ce3b2..c89f377fddc 100644
+--- a/libstdc++-v3/include/bits/stl_pair.h
++++ b/libstdc++-v3/include/bits/stl_pair.h
+@@ -56,12 +56,12 @@
+ #ifndef _STL_PAIR_H
+ #define _STL_PAIR_H 1
+ 
++#include <bits/move.h> // for std::move / std::forward, and std::swap
++
+ #if __cplusplus >= 201103L
+-# include <type_traits>    // for std::__decay_and_strip
+-# include <bits/move.h>    // for std::move / std::forward, and std::swap
+-# include <bits/utility.h> // for std::tuple_element, std::tuple_size
++# include <type_traits> // for std::__decay_and_strip, std::is_reference_v
+ #endif
+-#if __cplusplus >= 202002L
++#if __cplusplus > 201703L
+ # include <compare>
+ # define __cpp_lib_constexpr_utility 201811L
+ #endif
+@@ -752,153 +752,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+   /// @}
+ 
+-#if __cplusplus >= 201103L
+-  // Various functions which give std::pair a tuple-like interface.
+-
+-  template<typename _T1, typename _T2>
+-    struct __is_tuple_like_impl<pair<_T1, _T2>> : true_type
+-    { };
+-
+-  /// Partial specialization for std::pair
+-  template<class _Tp1, class _Tp2>
+-    struct tuple_size<pair<_Tp1, _Tp2>>
+-    : public integral_constant<size_t, 2> { };
+-
+-  /// Partial specialization for std::pair
+-  template<class _Tp1, class _Tp2>
+-    struct tuple_element<0, pair<_Tp1, _Tp2>>
+-    { typedef _Tp1 type; };
+-
+-  /// Partial specialization for std::pair
+-  template<class _Tp1, class _Tp2>
+-    struct tuple_element<1, pair<_Tp1, _Tp2>>
+-    { typedef _Tp2 type; };
+-
+-  /// @cond undocumented
+-  template<size_t _Int>
+-    struct __pair_get;
+-
+-  template<>
+-    struct __pair_get<0>
+-    {
+-      template<typename _Tp1, typename _Tp2>
+-	static constexpr _Tp1&
+-	__get(pair<_Tp1, _Tp2>& __pair) noexcept
+-	{ return __pair.first; }
+-
+-      template<typename _Tp1, typename _Tp2>
+-	static constexpr _Tp1&&
+-	__move_get(pair<_Tp1, _Tp2>&& __pair) noexcept
+-	{ return std::forward<_Tp1>(__pair.first); }
+-
+-      template<typename _Tp1, typename _Tp2>
+-	static constexpr const _Tp1&
+-	__const_get(const pair<_Tp1, _Tp2>& __pair) noexcept
+-	{ return __pair.first; }
+-
+-      template<typename _Tp1, typename _Tp2>
+-	static constexpr const _Tp1&&
+-	__const_move_get(const pair<_Tp1, _Tp2>&& __pair) noexcept
+-	{ return std::forward<const _Tp1>(__pair.first); }
+-    };
+-
+-  template<>
+-    struct __pair_get<1>
+-    {
+-      template<typename _Tp1, typename _Tp2>
+-	static constexpr _Tp2&
+-	__get(pair<_Tp1, _Tp2>& __pair) noexcept
+-	{ return __pair.second; }
+-
+-      template<typename _Tp1, typename _Tp2>
+-	static constexpr _Tp2&&
+-	__move_get(pair<_Tp1, _Tp2>&& __pair) noexcept
+-	{ return std::forward<_Tp2>(__pair.second); }
+-
+-      template<typename _Tp1, typename _Tp2>
+-	static constexpr const _Tp2&
+-	__const_get(const pair<_Tp1, _Tp2>& __pair) noexcept
+-	{ return __pair.second; }
+-
+-      template<typename _Tp1, typename _Tp2>
+-	static constexpr const _Tp2&&
+-	__const_move_get(const pair<_Tp1, _Tp2>&& __pair) noexcept
+-	{ return std::forward<const _Tp2>(__pair.second); }
+-    };
+-  /// @endcond
+-
+-  /** @{
+-   * std::get overloads for accessing members of std::pair
+-   */
+-
+-  template<size_t _Int, class _Tp1, class _Tp2>
+-    constexpr typename tuple_element<_Int, pair<_Tp1, _Tp2>>::type&
+-    get(pair<_Tp1, _Tp2>& __in) noexcept
+-    { return __pair_get<_Int>::__get(__in); }
+-
+-  template<size_t _Int, class _Tp1, class _Tp2>
+-    constexpr typename tuple_element<_Int, pair<_Tp1, _Tp2>>::type&&
+-    get(pair<_Tp1, _Tp2>&& __in) noexcept
+-    { return __pair_get<_Int>::__move_get(std::move(__in)); }
+-
+-  template<size_t _Int, class _Tp1, class _Tp2>
+-    constexpr const typename tuple_element<_Int, pair<_Tp1, _Tp2>>::type&
+-    get(const pair<_Tp1, _Tp2>& __in) noexcept
+-    { return __pair_get<_Int>::__const_get(__in); }
+-
+-  template<size_t _Int, class _Tp1, class _Tp2>
+-    constexpr const typename tuple_element<_Int, pair<_Tp1, _Tp2>>::type&&
+-    get(const pair<_Tp1, _Tp2>&& __in) noexcept
+-    { return __pair_get<_Int>::__const_move_get(std::move(__in)); }
+-
+-#if __cplusplus >= 201402L
+-
+-#define __cpp_lib_tuples_by_type 201304L
+-
+-  template <typename _Tp, typename _Up>
+-    constexpr _Tp&
+-    get(pair<_Tp, _Up>& __p) noexcept
+-    { return __p.first; }
+-
+-  template <typename _Tp, typename _Up>
+-    constexpr const _Tp&
+-    get(const pair<_Tp, _Up>& __p) noexcept
+-    { return __p.first; }
+-
+-  template <typename _Tp, typename _Up>
+-    constexpr _Tp&&
+-    get(pair<_Tp, _Up>&& __p) noexcept
+-    { return std::move(__p.first); }
+-
+-  template <typename _Tp, typename _Up>
+-    constexpr const _Tp&&
+-    get(const pair<_Tp, _Up>&& __p) noexcept
+-    { return std::move(__p.first); }
+-
+-  template <typename _Tp, typename _Up>
+-    constexpr _Tp&
+-    get(pair<_Up, _Tp>& __p) noexcept
+-    { return __p.second; }
+-
+-  template <typename _Tp, typename _Up>
+-    constexpr const _Tp&
+-    get(const pair<_Up, _Tp>& __p) noexcept
+-    { return __p.second; }
+-
+-  template <typename _Tp, typename _Up>
+-    constexpr _Tp&&
+-    get(pair<_Up, _Tp>&& __p) noexcept
+-    { return std::move(__p.second); }
+-
+-  template <typename _Tp, typename _Up>
+-    constexpr const _Tp&&
+-    get(const pair<_Up, _Tp>&& __p) noexcept
+-    { return std::move(__p.second); }
+-
+-#endif // C++14
+-  /// @}
+-#endif // C++11
+-
+ _GLIBCXX_END_NAMESPACE_VERSION
+ } // namespace std
+ 
+diff --git a/libstdc++-v3/include/bits/utility.h b/libstdc++-v3/include/bits/utility.h
+deleted file mode 100644
+index 96d350874d9..00000000000
+--- a/libstdc++-v3/include/bits/utility.h
++++ /dev/null
+@@ -1,205 +0,0 @@
+-// Utilities used throughout the library -*- C++ -*-
+-
+-// Copyright (C) 2004-2021 Free Software Foundation, Inc.
+-//
+-// This file is part of the GNU ISO C++ Library.  This library is free
+-// software; you can redistribute it and/or modify it under the
+-// terms of the GNU General Public License as published by the
+-// Free Software Foundation; either version 3, or (at your option)
+-// any later version.
+-
+-// This library is distributed in the hope that it will be useful,
+-// but WITHOUT ANY WARRANTY; without even the implied warranty of
+-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-// GNU General Public License for more details.
+-
+-// Under Section 7 of GPL version 3, you are granted additional
+-// permissions described in the GCC Runtime Library Exception, version
+-// 3.1, as published by the Free Software Foundation.
+-
+-// You should have received a copy of the GNU General Public License and
+-// a copy of the GCC Runtime Library Exception along with this program;
+-// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+-// <http://www.gnu.org/licenses/>.
+-
+-/** @file include/bits/utility.h
+- *  This is an internal header file, included by other library headers.
+- *  Do not attempt to use it directly. @headername{utility}
+- *
+- *  This file contains the parts of `<utility>` needed by other headers,
+- *  so they don't need to include the whole of `<utility>`.
+- */
+-
+-#ifndef _GLIBCXX_UTILITY_H
+-#define _GLIBCXX_UTILITY_H 1
+-
+-#pragma GCC system_header
+-
+-#if __cplusplus >= 201103L
+-
+-#include <type_traits>
+-#include <bits/move.h>
+-
+-namespace std _GLIBCXX_VISIBILITY(default)
+-{
+-_GLIBCXX_BEGIN_NAMESPACE_VERSION
+-
+-  /// Finds the size of a given tuple type.
+-  template<typename _Tp>
+-    struct tuple_size;
+-
+-  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+-  // 2313. tuple_size should always derive from integral_constant<size_t, N>
+-  // 2770. tuple_size<const T> specialization is not SFINAE compatible
+-
+-  template<typename _Tp,
+-	   typename _Up = typename remove_cv<_Tp>::type,
+-	   typename = typename enable_if<is_same<_Tp, _Up>::value>::type,
+-	   size_t = tuple_size<_Tp>::value>
+-    using __enable_if_has_tuple_size = _Tp;
+-
+-  template<typename _Tp>
+-    struct tuple_size<const __enable_if_has_tuple_size<_Tp>>
+-    : public tuple_size<_Tp> { };
+-
+-  template<typename _Tp>
+-    struct tuple_size<volatile __enable_if_has_tuple_size<_Tp>>
+-    : public tuple_size<_Tp> { };
+-
+-  template<typename _Tp>
+-    struct tuple_size<const volatile __enable_if_has_tuple_size<_Tp>>
+-    : public tuple_size<_Tp> { };
+-
+-  /// Gives the type of the ith element of a given tuple type.
+-  template<size_t __i, typename _Tp>
+-    struct tuple_element;
+-
+-  // Duplicate of C++14's tuple_element_t for internal use in C++11 mode
+-  template<size_t __i, typename _Tp>
+-    using __tuple_element_t = typename tuple_element<__i, _Tp>::type;
+-
+-  template<size_t __i, typename _Tp>
+-    struct tuple_element<__i, const _Tp>
+-    {
+-      typedef typename add_const<__tuple_element_t<__i, _Tp>>::type type;
+-    };
+-
+-  template<size_t __i, typename _Tp>
+-    struct tuple_element<__i, volatile _Tp>
+-    {
+-      typedef typename add_volatile<__tuple_element_t<__i, _Tp>>::type type;
+-    };
+-
+-  template<size_t __i, typename _Tp>
+-    struct tuple_element<__i, const volatile _Tp>
+-    {
+-      typedef typename add_cv<__tuple_element_t<__i, _Tp>>::type type;
+-    };
+-
+-#if __cplusplus >= 201402L
+-// The standard says this macro and alias template should be in <tuple>
+-// but we define them here, to be available in <utility> and <array> too.
+-#define __cpp_lib_tuple_element_t 201402L
+-
+-  template<size_t __i, typename _Tp>
+-    using tuple_element_t = typename tuple_element<__i, _Tp>::type;
+-#endif // C++14
+-
+-  // Stores a tuple of indices.  Used by tuple and pair, and by bind() to
+-  // extract the elements in a tuple.
+-  template<size_t... _Indexes> struct _Index_tuple { };
+-
+-  // Builds an _Index_tuple<0, 1, 2, ..., _Num-1>.
+-  template<size_t _Num>
+-    struct _Build_index_tuple
+-    {
+-#if __has_builtin(__make_integer_seq)
+-      template<typename, size_t... _Indices>
+-	using _IdxTuple = _Index_tuple<_Indices...>;
+-
+-      // Clang defines __make_integer_seq for this purpose.
+-      using __type = __make_integer_seq<_IdxTuple, size_t, _Num>;
+-#else
+-      // For GCC and other compilers, use __integer_pack instead.
+-      using __type = _Index_tuple<__integer_pack(_Num)...>;
+-#endif
+-    };
+-
+-#if __cplusplus >= 201402L
+-
+-#define __cpp_lib_integer_sequence 201304L
+-
+-  /// Class template integer_sequence
+-  template<typename _Tp, _Tp... _Idx>
+-    struct integer_sequence
+-    {
+-      typedef _Tp value_type;
+-      static constexpr size_t size() noexcept { return sizeof...(_Idx); }
+-    };
+-
+-  /// Alias template make_integer_sequence
+-  template<typename _Tp, _Tp _Num>
+-    using make_integer_sequence
+-#if __has_builtin(__make_integer_seq)
+-      = __make_integer_seq<integer_sequence, _Tp, _Num>;
+-#else
+-      = integer_sequence<_Tp, __integer_pack(_Num)...>;
+-#endif
+-
+-  /// Alias template index_sequence
+-  template<size_t... _Idx>
+-    using index_sequence = integer_sequence<size_t, _Idx...>;
+-
+-  /// Alias template make_index_sequence
+-  template<size_t _Num>
+-    using make_index_sequence = make_integer_sequence<size_t, _Num>;
+-
+-  /// Alias template index_sequence_for
+-  template<typename... _Types>
+-    using index_sequence_for = make_index_sequence<sizeof...(_Types)>;
+-
+-#if __cplusplus >= 201703L
+-
+-  //
+-  struct in_place_t {
+-    explicit in_place_t() = default;
+-  };
+-
+-  inline constexpr in_place_t in_place{};
+-
+-  template<typename _Tp> struct in_place_type_t
+-  {
+-    explicit in_place_type_t() = default;
+-  };
+-
+-  template<typename _Tp>
+-    inline constexpr in_place_type_t<_Tp> in_place_type{};
+-
+-  template<size_t _Idx> struct in_place_index_t
+-  {
+-    explicit in_place_index_t() = default;
+-  };
+-
+-  template<size_t _Idx>
+-    inline constexpr in_place_index_t<_Idx> in_place_index{};
+-
+-  template<typename>
+-    struct __is_in_place_type_impl : false_type
+-    { };
+-
+-  template<typename _Tp>
+-    struct __is_in_place_type_impl<in_place_type_t<_Tp>> : true_type
+-    { };
+-
+-  template<typename _Tp>
+-    struct __is_in_place_type
+-      : public __is_in_place_type_impl<_Tp>
+-    { };
+-#endif // C++17
+-#endif // C++14
+-
+-_GLIBCXX_END_NAMESPACE_VERSION
+-} // namespace
+-
+-#endif // C++11
+-#endif /* _GLIBCXX_UTILITY_H */
+diff --git a/libstdc++-v3/include/std/any b/libstdc++-v3/include/std/any
+index 1fce95730ea..a6995b79c43 100644
+--- a/libstdc++-v3/include/std/any
++++ b/libstdc++-v3/include/std/any
+@@ -33,11 +33,10 @@
+ 
+ #if __cplusplus >= 201703L
+ 
+-#include <initializer_list>
+ #include <typeinfo>
+ #include <new>
++#include <utility>
+ #include <type_traits>
+-#include <bits/utility.h> // in_place_type_t
+ 
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+diff --git a/libstdc++-v3/include/std/array b/libstdc++-v3/include/std/array
+index 3e12d35157c..2c8e6f8e7db 100644
+--- a/libstdc++-v3/include/std/array
++++ b/libstdc++-v3/include/std/array
+@@ -35,14 +35,10 @@
+ # include <bits/c++0x_warning.h>
+ #else
+ 
+-#include <compare>
+-#include <initializer_list>
+-
+-#include <type_traits>
++#include <utility>
+ #include <bits/functexcept.h>
+ #include <bits/stl_algobase.h>
+-#include <bits/range_access.h> // std::begin, std::end etc.
+-#include <bits/utility.h>      // std::index_sequence, std::tuple_size
++#include <bits/range_access.h>
+ #include <debug/assertions.h>
+ 
+ namespace std _GLIBCXX_VISIBILITY(default)
+@@ -468,20 +464,28 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+   // Tuple interface to class template array.
+ 
++  /// tuple_size
++  template<typename _Tp>
++    struct tuple_size;
++
+   /// Partial specialization for std::array
+-  template<typename _Tp, size_t _Nm>
++  template<typename _Tp, std::size_t _Nm>
+     struct tuple_size<array<_Tp, _Nm>>
+-    : public integral_constant<size_t, _Nm> { };
++    : public integral_constant<std::size_t, _Nm> { };
++
++  /// tuple_element
++  template<std::size_t _Int, typename _Tp>
++    struct tuple_element;
+ 
+   /// Partial specialization for std::array
+-  template<size_t _Ind, typename _Tp, size_t _Nm>
+-    struct tuple_element<_Ind, array<_Tp, _Nm>>
++  template<std::size_t _Int, typename _Tp, std::size_t _Nm>
++    struct tuple_element<_Int, array<_Tp, _Nm>>
+     {
+-      static_assert(_Ind < _Nm, "array index is in range");
+-      using type = _Tp;
++      static_assert(_Int < _Nm, "index is out of bounds");
++      typedef _Tp type;
+     };
+ 
+-  template<typename _Tp, size_t _Nm>
++  template<typename _Tp, std::size_t _Nm>
+     struct __is_tuple_like_impl<array<_Tp, _Nm>> : true_type
+     { };
+ 
+diff --git a/libstdc++-v3/include/std/memory_resource b/libstdc++-v3/include/std/memory_resource
+index 6bca0afa018..bd16fbe5e9b 100644
+--- a/libstdc++-v3/include/std/memory_resource
++++ b/libstdc++-v3/include/std/memory_resource
+@@ -38,13 +38,13 @@
+ #include <shared_mutex>			// shared_mutex
+ #include <bits/align.h>			// align
+ #include <bits/functexcept.h>		// __throw_bad_array_new_length
+-#include <bits/uses_allocator.h>	// allocator_arg_t, __use_alloc
++#include <bits/uses_allocator.h>	// __use_alloc
+ #include <bits/uses_allocator_args.h>	// uninitialized_construct_using_alloc
+ #include <ext/numeric_traits.h>
+ #include <debug/assertions.h>
+ 
+ #if ! __cpp_lib_make_obj_using_allocator
+-# include <bits/utility.h>		// index_sequence
++# include <utility>			// pair, index_sequence
+ # include <tuple>			// tuple, forward_as_tuple
+ #endif
+ 
+@@ -338,10 +338,10 @@ namespace pmr
+       { return _M_resource; }
+ 
+     private:
+-#if ! __cpp_lib_make_obj_using_allocator
+       using __uses_alloc1_ = __uses_alloc1<polymorphic_allocator>;
+       using __uses_alloc2_ = __uses_alloc2<polymorphic_allocator>;
+ 
++#if ! __cpp_lib_make_obj_using_allocator
+       template<typename _Ind, typename... _Args>
+ 	static tuple<_Args&&...>
+ 	_S_construct_p(__uses_alloc0, _Ind, tuple<_Args...>& __t)
+diff --git a/libstdc++-v3/include/std/optional b/libstdc++-v3/include/std/optional
+index b8ab7510757..15c804d09b7 100644
+--- a/libstdc++-v3/include/std/optional
++++ b/libstdc++-v3/include/std/optional
+@@ -33,14 +33,14 @@
+ 
+ #if __cplusplus >= 201703L
+ 
++#include <utility>
+ #include <type_traits>
+ #include <exception>
+ #include <new>
+ #include <initializer_list>
+-#include <bits/enable_special_members.h>
+ #include <bits/exception_defines.h>
+ #include <bits/functional_hash.h>
+-#include <bits/utility.h> // in_place_t
++#include <bits/enable_special_members.h>
+ #if __cplusplus > 201703L
+ # include <compare>
+ #endif
+diff --git a/libstdc++-v3/include/std/tuple b/libstdc++-v3/include/std/tuple
+index f082ccb8a3b..374c942a4ff 100644
+--- a/libstdc++-v3/include/std/tuple
++++ b/libstdc++-v3/include/std/tuple
+@@ -35,10 +35,10 @@
+ # include <bits/c++0x_warning.h>
+ #else
+ 
+-#include <bits/stl_pair.h>		// for std::pair
+-#include <bits/uses_allocator.h>	// for std::allocator_arg_t
+-#include <bits/utility.h>		// for std::get, std::tuple_size etc.
+-#include <bits/invoke.h>		// for std::__invoke
++#include <utility>
++#include <array>
++#include <bits/uses_allocator.h>
++#include <bits/invoke.h>
+ #if __cplusplus > 201703L
+ # include <compare>
+ # define __cpp_lib_constexpr_tuple 201811L
+@@ -1419,7 +1419,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+ #if __cplusplus >= 201402L
+ 
+-#define __cpp_lib_tuples_by_type 201304L
++#define __cpp_lib_tuples_by_type 201304
+ 
+   // Return the index of _Tp in _Types, if it occurs exactly once.
+   // Otherwise, return sizeof...(_Types).
+@@ -1617,28 +1617,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     forward_as_tuple(_Elements&&... __args) noexcept
+     { return tuple<_Elements&&...>(std::forward<_Elements>(__args)...); }
+ 
+-  // Declarations of std::array and its std::get overloads, so that
+-  // std::tuple_cat can use them if <tuple> is included before <array>.
+-
+-  template<typename _Tp, size_t _Nm> struct array;
+-
+-  template<size_t _Int, typename _Tp, size_t _Nm>
+-    constexpr _Tp&
+-    get(array<_Tp, _Nm>&) noexcept;
+-
+-  template<size_t _Int, typename _Tp, size_t _Nm>
+-    constexpr _Tp&&
+-    get(array<_Tp, _Nm>&&) noexcept;
+-
+-  template<size_t _Int, typename _Tp, size_t _Nm>
+-    constexpr const _Tp&
+-    get(const array<_Tp, _Nm>&) noexcept;
+-
+-  template<size_t _Int, typename _Tp, size_t _Nm>
+-    constexpr const _Tp&&
+-    get(const array<_Tp, _Nm>&&) noexcept;
+-
+-
+   template<size_t, typename, typename, size_t>
+     struct __make_tuple_impl;
+ 
+@@ -1747,10 +1725,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	}
+     };
+ 
+-  template<typename... _Tps>
+-    struct __is_tuple_like_impl<tuple<_Tps...>> : true_type
+-    { };
+-
+   /// tuple_cat
+   template<typename... _Tpls, typename = typename
+            enable_if<__and_<__is_tuple_like<_Tpls>...>::value>::type>
+diff --git a/libstdc++-v3/include/std/type_traits b/libstdc++-v3/include/std/type_traits
+index a0010d960b2..95f73aa028d 100644
+--- a/libstdc++-v3/include/std/type_traits
++++ b/libstdc++-v3/include/std/type_traits
+@@ -41,6 +41,9 @@ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
++  template<typename... _Elements>
++    class tuple;
++
+   template<typename _Tp>
+     class reference_wrapper;
+ 
+@@ -2681,6 +2684,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     struct __is_tuple_like_impl : false_type
+     { };
+ 
++  template<typename... _Tps>
++    struct __is_tuple_like_impl<tuple<_Tps...>> : true_type
++    { };
++
+   // Internal type trait that allows us to sfinae-protect tuple_cat.
+   template<typename _Tp>
+     struct __is_tuple_like
+diff --git a/libstdc++-v3/include/std/utility b/libstdc++-v3/include/std/utility
+index c2697f87dc5..3e68f682e00 100644
+--- a/libstdc++-v3/include/std/utility
++++ b/libstdc++-v3/include/std/utility
+@@ -60,8 +60,9 @@
+ /**
+  * @defgroup utilities Utilities
+  *
+- * Basic function and class templates used with the rest of the library.
+- * Includes pair, swap, forward/move helpers, declval, integer_sequence.
++ * Components deemed generally useful. Includes pair, tuple,
++ * forward/move helpers, ratio, function object, metaprogramming and
++ * type traits, time, date, and memory functions.
+  */
+ 
+ #include <bits/c++config.h>
+@@ -70,21 +71,218 @@
+ 
+ #if __cplusplus >= 201103L
+ 
+-#include <initializer_list>
+ #include <type_traits>
+ #include <bits/move.h>
+-#include <bits/utility.h>
++#include <initializer_list>
+ 
+-#if __cplusplus >= 202002L
+-#include <ext/numeric_traits.h> // __is_standard_integer, __int_traits
++#if __cplusplus > 201703L
++#include <ext/numeric_traits.h>
+ #endif
+ 
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
++  /// Finds the size of a given tuple type.
++  template<typename _Tp>
++    struct tuple_size;
++
++  // _GLIBCXX_RESOLVE_LIB_DEFECTS
++  // 2313. tuple_size should always derive from integral_constant<size_t, N>
++  // 2770. tuple_size<const T> specialization is not SFINAE compatible
++
++  template<typename _Tp,
++	   typename _Up = typename remove_cv<_Tp>::type,
++	   typename = typename enable_if<is_same<_Tp, _Up>::value>::type,
++	   size_t = tuple_size<_Tp>::value>
++    using __enable_if_has_tuple_size = _Tp;
++
++  template<typename _Tp>
++    struct tuple_size<const __enable_if_has_tuple_size<_Tp>>
++    : public tuple_size<_Tp> { };
++
++  template<typename _Tp>
++    struct tuple_size<volatile __enable_if_has_tuple_size<_Tp>>
++    : public tuple_size<_Tp> { };
++
++  template<typename _Tp>
++    struct tuple_size<const volatile __enable_if_has_tuple_size<_Tp>>
++    : public tuple_size<_Tp> { };
++
++  /// Gives the type of the ith element of a given tuple type.
++  template<size_t __i, typename _Tp>
++    struct tuple_element;
++
++  // Duplicate of C++14's tuple_element_t for internal use in C++11 mode
++  template<size_t __i, typename _Tp>
++    using __tuple_element_t = typename tuple_element<__i, _Tp>::type;
++
++  template<size_t __i, typename _Tp>
++    struct tuple_element<__i, const _Tp>
++    {
++      typedef typename add_const<__tuple_element_t<__i, _Tp>>::type type;
++    };
++
++  template<size_t __i, typename _Tp>
++    struct tuple_element<__i, volatile _Tp>
++    {
++      typedef typename add_volatile<__tuple_element_t<__i, _Tp>>::type type;
++    };
++
++  template<size_t __i, typename _Tp>
++    struct tuple_element<__i, const volatile _Tp>
++    {
++      typedef typename add_cv<__tuple_element_t<__i, _Tp>>::type type;
++    };
++
++#if __cplusplus >= 201402L
++// The standard says this macro and alias template should be in <tuple>
++// but we define them here, to be available when the partial specializations
++// of tuple_element<pair<T,U>> and tuple_element<array<T,N>> are defined.
++#define __cpp_lib_tuple_element_t 201402L
++
++  template<size_t __i, typename _Tp>
++    using tuple_element_t = typename tuple_element<__i, _Tp>::type;
++#endif
++
++  // Various functions which give std::pair a tuple-like interface.
++
++  /// Partial specialization for std::pair
++  template<typename _T1, typename _T2>
++    struct __is_tuple_like_impl<pair<_T1, _T2>> : true_type
++    { };
++
++  /// Partial specialization for std::pair
++  template<class _Tp1, class _Tp2>
++    struct tuple_size<pair<_Tp1, _Tp2>>
++    : public integral_constant<size_t, 2> { };
++
++  /// Partial specialization for std::pair
++  template<class _Tp1, class _Tp2>
++    struct tuple_element<0, pair<_Tp1, _Tp2>>
++    { typedef _Tp1 type; };
++
++  /// Partial specialization for std::pair
++  template<class _Tp1, class _Tp2>
++    struct tuple_element<1, pair<_Tp1, _Tp2>>
++    { typedef _Tp2 type; };
++
++  template<size_t _Int>
++    struct __pair_get;
++
++  template<>
++    struct __pair_get<0>
++    {
++      template<typename _Tp1, typename _Tp2>
++	static constexpr _Tp1&
++	__get(pair<_Tp1, _Tp2>& __pair) noexcept
++	{ return __pair.first; }
++
++      template<typename _Tp1, typename _Tp2>
++	static constexpr _Tp1&&
++	__move_get(pair<_Tp1, _Tp2>&& __pair) noexcept
++	{ return std::forward<_Tp1>(__pair.first); }
++
++      template<typename _Tp1, typename _Tp2>
++	static constexpr const _Tp1&
++	__const_get(const pair<_Tp1, _Tp2>& __pair) noexcept
++	{ return __pair.first; }
++
++      template<typename _Tp1, typename _Tp2>
++	static constexpr const _Tp1&&
++	__const_move_get(const pair<_Tp1, _Tp2>&& __pair) noexcept
++	{ return std::forward<const _Tp1>(__pair.first); }
++    };
++
++  template<>
++    struct __pair_get<1>
++    {
++      template<typename _Tp1, typename _Tp2>
++	static constexpr _Tp2&
++	__get(pair<_Tp1, _Tp2>& __pair) noexcept
++	{ return __pair.second; }
++
++      template<typename _Tp1, typename _Tp2>
++	static constexpr _Tp2&&
++	__move_get(pair<_Tp1, _Tp2>&& __pair) noexcept
++	{ return std::forward<_Tp2>(__pair.second); }
++
++      template<typename _Tp1, typename _Tp2>
++	static constexpr const _Tp2&
++	__const_get(const pair<_Tp1, _Tp2>& __pair) noexcept
++	{ return __pair.second; }
++
++      template<typename _Tp1, typename _Tp2>
++	static constexpr const _Tp2&&
++	__const_move_get(const pair<_Tp1, _Tp2>&& __pair) noexcept
++	{ return std::forward<const _Tp2>(__pair.second); }
++    };
++
++  template<size_t _Int, class _Tp1, class _Tp2>
++    constexpr typename tuple_element<_Int, pair<_Tp1, _Tp2>>::type&
++    get(pair<_Tp1, _Tp2>& __in) noexcept
++    { return __pair_get<_Int>::__get(__in); }
++
++  template<size_t _Int, class _Tp1, class _Tp2>
++    constexpr typename tuple_element<_Int, pair<_Tp1, _Tp2>>::type&&
++    get(pair<_Tp1, _Tp2>&& __in) noexcept
++    { return __pair_get<_Int>::__move_get(std::move(__in)); }
++
++  template<size_t _Int, class _Tp1, class _Tp2>
++    constexpr const typename tuple_element<_Int, pair<_Tp1, _Tp2>>::type&
++    get(const pair<_Tp1, _Tp2>& __in) noexcept
++    { return __pair_get<_Int>::__const_get(__in); }
++
++  template<size_t _Int, class _Tp1, class _Tp2>
++    constexpr const typename tuple_element<_Int, pair<_Tp1, _Tp2>>::type&&
++    get(const pair<_Tp1, _Tp2>&& __in) noexcept
++    { return __pair_get<_Int>::__const_move_get(std::move(__in)); }
++
+ #if __cplusplus >= 201402L
+-#define __cpp_lib_exchange_function 201304L
++
++#define __cpp_lib_tuples_by_type 201304
++
++  template <typename _Tp, typename _Up>
++    constexpr _Tp&
++    get(pair<_Tp, _Up>& __p) noexcept
++    { return __p.first; }
++
++  template <typename _Tp, typename _Up>
++    constexpr const _Tp&
++    get(const pair<_Tp, _Up>& __p) noexcept
++    { return __p.first; }
++
++  template <typename _Tp, typename _Up>
++    constexpr _Tp&&
++    get(pair<_Tp, _Up>&& __p) noexcept
++    { return std::move(__p.first); }
++
++  template <typename _Tp, typename _Up>
++    constexpr const _Tp&&
++    get(const pair<_Tp, _Up>&& __p) noexcept
++    { return std::move(__p.first); }
++
++  template <typename _Tp, typename _Up>
++    constexpr _Tp&
++    get(pair<_Up, _Tp>& __p) noexcept
++    { return __p.second; }
++
++  template <typename _Tp, typename _Up>
++    constexpr const _Tp&
++    get(const pair<_Up, _Tp>& __p) noexcept
++    { return __p.second; }
++
++  template <typename _Tp, typename _Up>
++    constexpr _Tp&&
++    get(pair<_Up, _Tp>&& __p) noexcept
++    { return std::move(__p.second); }
++
++  template <typename _Tp, typename _Up>
++    constexpr const _Tp&&
++    get(const pair<_Up, _Tp>&& __p) noexcept
++    { return std::move(__p.second); }
++
++#define __cpp_lib_exchange_function 201304
+ 
+   /// Assign @p __new_val to @p __obj and return its previous value.
+   template <typename _Tp, typename _Up = _Tp>
+@@ -93,9 +291,100 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     exchange(_Tp& __obj, _Up&& __new_val)
+     { return std::__exchange(__obj, std::forward<_Up>(__new_val)); }
+ 
+-#if __cplusplus >= 201703L
++#endif // C++14
++
++  // Stores a tuple of indices.  Used by tuple and pair, and by bind() to
++  // extract the elements in a tuple.
++  template<size_t... _Indexes> struct _Index_tuple { };
++
++  // Builds an _Index_tuple<0, 1, 2, ..., _Num-1>.
++  template<size_t _Num>
++    struct _Build_index_tuple
++    {
++#if __has_builtin(__make_integer_seq)
++      template<typename, size_t... _Indices>
++        using _IdxTuple = _Index_tuple<_Indices...>;
++
++      // Clang defines __make_integer_seq for this purpose.
++      using __type = __make_integer_seq<_IdxTuple, size_t, _Num>;
++#else
++      // For GCC and other compilers, use __integer_pack instead.
++      using __type = _Index_tuple<__integer_pack(_Num)...>;
++#endif
++    };
++
++#if __cplusplus >= 201402L
++
++#define __cpp_lib_integer_sequence 201304
++
++  /// Class template integer_sequence
++  template<typename _Tp, _Tp... _Idx>
++    struct integer_sequence
++    {
++      typedef _Tp value_type;
++      static constexpr size_t size() noexcept { return sizeof...(_Idx); }
++    };
++
++  /// Alias template make_integer_sequence
++  template<typename _Tp, _Tp _Num>
++    using make_integer_sequence
++#if __has_builtin(__make_integer_seq)
++      = __make_integer_seq<integer_sequence, _Tp, _Num>;
++#else
++      = integer_sequence<_Tp, __integer_pack(_Num)...>;
++#endif
++
++  /// Alias template index_sequence
++  template<size_t... _Idx>
++    using index_sequence = integer_sequence<size_t, _Idx...>;
++
++  /// Alias template make_index_sequence
++  template<size_t _Num>
++    using make_index_sequence = make_integer_sequence<size_t, _Num>;
++
++  /// Alias template index_sequence_for
++  template<typename... _Types>
++    using index_sequence_for = make_index_sequence<sizeof...(_Types)>;
++#endif
++
++#if __cplusplus > 201402L
++
++  struct in_place_t {
++    explicit in_place_t() = default;
++  };
++
++  inline constexpr in_place_t in_place{};
++
++  template<typename _Tp> struct in_place_type_t
++  {
++    explicit in_place_type_t() = default;
++  };
++
++  template<typename _Tp>
++    inline constexpr in_place_type_t<_Tp> in_place_type{};
++
++  template<size_t _Idx> struct in_place_index_t
++  {
++    explicit in_place_index_t() = default;
++  };
++
++  template<size_t _Idx>
++    inline constexpr in_place_index_t<_Idx> in_place_index{};
++
++  template<typename>
++    struct __is_in_place_type_impl : false_type
++    { };
+ 
+-#define  __cpp_lib_as_const 201510L
++  template<typename _Tp>
++    struct __is_in_place_type_impl<in_place_type_t<_Tp>> : true_type
++    { };
++
++  template<typename _Tp>
++    struct __is_in_place_type
++      : public __is_in_place_type_impl<_Tp>
++    { };
++
++#define  __cpp_lib_as_const 201510
+   template<typename _Tp>
+     [[nodiscard]]
+     constexpr add_const_t<_Tp>&
+@@ -187,7 +476,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ #endif // C++23
+ #endif // C++20
+ #endif // C++17
+-#endif // C++14
+ 
+ _GLIBCXX_END_NAMESPACE_VERSION
+ } // namespace
+diff --git a/libstdc++-v3/include/std/variant b/libstdc++-v3/include/std/variant
+index 6383cf4e502..a4e038e0ec8 100644
+--- a/libstdc++-v3/include/std/variant
++++ b/libstdc++-v3/include/std/variant
+@@ -33,10 +33,11 @@
+ 
+ #if __cplusplus >= 201703L
+ 
+-#include <initializer_list>
+ #include <type_traits>
++#include <utility>
+ #include <bits/enable_special_members.h>
+-#include <bits/exception_defines.h>
++#include <bits/functexcept.h>
++#include <bits/move.h>
+ #include <bits/functional_hash.h>
+ #include <bits/invoke.h>
+ #include <ext/aligned_buffer.h>
+@@ -44,7 +45,6 @@
+ #include <bits/stl_iterator_base_types.h>
+ #include <bits/stl_iterator_base_funcs.h>
+ #include <bits/stl_construct.h>
+-#include <bits/utility.h> // in_place_index_t
+ #if __cplusplus > 201703L
+ # include <compare>
+ #endif
+diff --git a/libstdc++-v3/include/std/version b/libstdc++-v3/include/std/version
+index 70d573bb517..0206511d14a 100644
+--- a/libstdc++-v3/include/std/version
++++ b/libstdc++-v3/include/std/version
+@@ -94,7 +94,7 @@
+ # define __cpp_lib_string_udls 201304
+ # define __cpp_lib_transparent_operators 201510
+ # define __cpp_lib_tuple_element_t 201402L
+-# define __cpp_lib_tuples_by_type 201304L
++# define __cpp_lib_tuples_by_type 201304
+ #endif
+ 
+ #if __cplusplus >= 201703L
+diff --git a/libstdc++-v3/testsuite/20_util/optional/84601.cc b/libstdc++-v3/testsuite/20_util/optional/84601.cc
+index fbfa8fdeebf..ddac999d49e 100644
+--- a/libstdc++-v3/testsuite/20_util/optional/84601.cc
++++ b/libstdc++-v3/testsuite/20_util/optional/84601.cc
+@@ -1,7 +1,6 @@
+ // { dg-do compile { target c++17 }  }
+ 
+ #include <optional>
+-#include <utility>
+ 
+ using pair_t = std::pair<int, int>;
+ using opt_t = std::optional<pair_t>;
+diff --git a/libstdc++-v3/testsuite/20_util/specialized_algorithms/uninitialized_fill/constrained.cc b/libstdc++-v3/testsuite/20_util/specialized_algorithms/uninitialized_fill/constrained.cc
+index bce65cf0807..bb980a91b0e 100644
+--- a/libstdc++-v3/testsuite/20_util/specialized_algorithms/uninitialized_fill/constrained.cc
++++ b/libstdc++-v3/testsuite/20_util/specialized_algorithms/uninitialized_fill/constrained.cc
+@@ -25,7 +25,6 @@
+ #include <span>
+ #include <string>
+ #include <vector>
+-#include <utility>
+ 
+ #include <testsuite_hooks.h>
+ #include <testsuite_iterators.h>
+diff --git a/libstdc++-v3/testsuite/23_containers/array/tuple_interface/get_neg.cc b/libstdc++-v3/testsuite/23_containers/array/tuple_interface/get_neg.cc
+index 70742c14a7d..2875f30011b 100644
+--- a/libstdc++-v3/testsuite/23_containers/array/tuple_interface/get_neg.cc
++++ b/libstdc++-v3/testsuite/23_containers/array/tuple_interface/get_neg.cc
+@@ -26,6 +26,6 @@ int n1 = std::get<1>(a);
+ int n2 = std::get<1>(std::move(a));
+ int n3 = std::get<1>(ca);
+ 
+-// { dg-error "static assertion failed" "" { target *-*-* } 398 }
+-// { dg-error "static assertion failed" "" { target *-*-* } 407 }
+-// { dg-error "static assertion failed" "" { target *-*-* } 416 }
++// { dg-error "static assertion failed" "" { target *-*-* } 363 }
++// { dg-error "static assertion failed" "" { target *-*-* } 371 }
++// { dg-error "static assertion failed" "" { target *-*-* } 379 }
+diff --git a/libstdc++-v3/testsuite/std/ranges/access/cbegin.cc b/libstdc++-v3/testsuite/std/ranges/access/cbegin.cc
+index 7941563b124..ed80af589cf 100644
+--- a/libstdc++-v3/testsuite/std/ranges/access/cbegin.cc
++++ b/libstdc++-v3/testsuite/std/ranges/access/cbegin.cc
+@@ -19,7 +19,6 @@
+ // { dg-do run { target c++2a } }
+ 
+ #include <ranges>
+-#include <utility> // as_const
+ #include <testsuite_hooks.h>
+ #include <testsuite_iterators.h>
+ 
+diff --git a/libstdc++-v3/testsuite/std/ranges/access/cend.cc b/libstdc++-v3/testsuite/std/ranges/access/cend.cc
+index 135bda80a6a..3e685ae9ce2 100644
+--- a/libstdc++-v3/testsuite/std/ranges/access/cend.cc
++++ b/libstdc++-v3/testsuite/std/ranges/access/cend.cc
+@@ -19,7 +19,6 @@
+ // { dg-do run { target c++2a } }
+ 
+ #include <ranges>
+-#include <utility> // as_const
+ #include <testsuite_hooks.h>
+ #include <testsuite_iterators.h>
+ 
+diff --git a/libstdc++-v3/testsuite/std/ranges/access/end.cc b/libstdc++-v3/testsuite/std/ranges/access/end.cc
+index 7321a3088a4..25f21c75afc 100644
+--- a/libstdc++-v3/testsuite/std/ranges/access/end.cc
++++ b/libstdc++-v3/testsuite/std/ranges/access/end.cc
+@@ -19,7 +19,6 @@
+ // { dg-do run { target c++2a } }
+ 
+ #include <ranges>
+-#include <utility> // as_const
+ #include <testsuite_hooks.h>
+ #include <testsuite_iterators.h>
+ 
+diff --git a/libstdc++-v3/testsuite/std/ranges/single_view.cc b/libstdc++-v3/testsuite/std/ranges/single_view.cc
+index fe03cccf9cc..f1d8e103715 100644
+--- a/libstdc++-v3/testsuite/std/ranges/single_view.cc
++++ b/libstdc++-v3/testsuite/std/ranges/single_view.cc
+@@ -19,7 +19,6 @@
+ // { dg-do run { target c++2a } }
+ 
+ #include <ranges>
+-#include <utility> // as_const
+ #include <testsuite_hooks.h>
+ 
+ void
+-- 
+2.31.1
+
