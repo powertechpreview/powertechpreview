@@ -1,7 +1,7 @@
 From 40feaee614da1a3abd3f43040b6c469ebddd54d4 Mon Sep 17 00:00:00 2001
 From: Rogerio Alves <rcardoso@linux.ibm.com>
 Date: Wed, 20 Nov 2019 10:35:40 -0300
-Subject: [PATCH 1/9] Preparation for Power optimizations
+Subject: [PATCH 01/10] Preparation for Power optimizations
 
 Optimized functions for Power will make use of GNU indirect functions,
 an extension to support different implementations of the same function,
@@ -288,13 +288,13 @@ index 0000000..b42c7d6
 + * For conditions of distribution and use, see copyright notice in zlib.h
 + */
 -- 
-2.26.2
+2.34.1
 
 
 From 3be4fc9c7dd3529698aa8aaf5271ed8599e290b7 Mon Sep 17 00:00:00 2001
 From: Rogerio Alves <rcardoso@linux.ibm.com>
 Date: Mon, 9 Dec 2019 14:40:53 -0300
-Subject: [PATCH 2/9] Adler32 vector optimization for Power.
+Subject: [PATCH 02/10] Adler32 vector optimization for Power.
 
 This commit implements a Power (POWER8+) vector optimization for Adler32
 checksum using VSX (vector) instructions. The VSX adler32 checksum is up
@@ -630,13 +630,13 @@ index b42c7d6..74de1ab 100644
 +
 +uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
 -- 
-2.26.2
+2.34.1
 
 
 From 61e1c1eb20e964e14f89c84020e01aa729446eea Mon Sep 17 00:00:00 2001
 From: Rogerio Alves <rcardoso@linux.ibm.com>
 Date: Tue, 10 Dec 2019 15:04:28 -0300
-Subject: [PATCH 3/9] Tests for Adler32 vector optimization for Power.
+Subject: [PATCH 03/10] Tests for Adler32 vector optimization for Power.
 
 This commit add tests for adler32 vector optimization for Power (POWER8+).
 
@@ -1144,13 +1144,13 @@ index 0000000..8042295
 +    return 0;
 +}
 -- 
-2.26.2
+2.34.1
 
 
 From ee461375b245977cb4f0bbf5c92f8aa4b7f3afe1 Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Tue, 29 Oct 2019 18:04:11 -0300
-Subject: [PATCH 4/9] Add vectorized longest_match for Power
+Subject: [PATCH 04/10] Add vectorized longest_match for Power
 
 This commit introduces an optimized version of the longest_match
 function for Power processors. It uses VSX instructions to match
@@ -1479,13 +1479,13 @@ index 1ec7614..1e3aa18 100644
  
  /* ---------------------------------------------------------------------------
 -- 
-2.26.2
+2.34.1
 
 
 From b3f9640f717d3abdaf82d06857e247bf0ef8c82a Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Wed, 27 Nov 2019 10:18:10 -0300
-Subject: [PATCH 5/9] Add optimized slide_hash for Power
+Subject: [PATCH 05/10] Add optimized slide_hash for Power
 
 Considerable time is spent on deflate.c:slide_hash() during
 deflate. This commit introduces a new slide_hash function that
@@ -1698,13 +1698,13 @@ index 1e3aa18..4f8024d 100644
  int ZEXPORT deflateInit_(strm, level, version, stream_size)
      z_streamp strm;
 -- 
-2.26.2
+2.34.1
 
 
 From 7660dbaa278d778a44d01e679bd51f683d5b23da Mon Sep 17 00:00:00 2001
 From: Daniel Black <daniel@linux.vnet.ibm.com>
 Date: Wed, 10 Jan 2018 10:50:39 +1100
-Subject: [PATCH 6/9] Add Power8+ optimized crc32
+Subject: [PATCH 06/10] Add Power8+ optimized crc32
 
 This commit adds an optimized version for the crc32 function based
 on crc32-vpmsum from https://github.com/antonblanchard/crc32-vpmsum/
@@ -4200,13 +4200,13 @@ index 0000000..3155553
 +    return 0;
 +}
 -- 
-2.26.2
+2.34.1
 
 
 From 40ce2d09198b9ded33634a6939ed8cc3d2bec610 Mon Sep 17 00:00:00 2001
 From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
 Date: Wed, 25 Mar 2020 12:16:41 -0300
-Subject: [PATCH 7/9] Fix clang's behavior on versions >= 7
+Subject: [PATCH 07/10] Fix clang's behavior on versions >= 7
 
 Clang 7 changed the behavior of vec_xxpermdi in order to match GCC's
 behavior.  After this change, code that used to work on Clang 6 stopped
@@ -4264,13 +4264,13 @@ index b5e7dae..915f7e5 100644
  }
  #endif /* vec_xxpermdi */
 -- 
-2.26.2
+2.34.1
 
 
 From 18799895c3ef7a8f146b689106d549869d2688f6 Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Wed, 29 Apr 2020 12:09:19 -0300
-Subject: [PATCH 8/9] Fix importing of zconf.h
+Subject: [PATCH 08/10] Fix importing of zconf.h
 
 ---
  contrib/power/power.h | 2 +-
@@ -4290,13 +4290,13 @@ index a8a6f0a..5c44eb2 100644
  uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
  
 -- 
-2.26.2
+2.34.1
 
 
 From 691785fcbe654b092b0db10505743923fd1fec77 Mon Sep 17 00:00:00 2001
 From: Matheus Castanho <msc@linux.ibm.com>
 Date: Fri, 23 Oct 2020 15:10:38 -0300
-Subject: [PATCH 9/9] Limit optimizations to 64-bit targets
+Subject: [PATCH 09/10] Limit optimizations to 64-bit targets
 
 Some optimizations don't work on 32-bit targets, so we should limit them
 to 64 bits only.
@@ -4319,5 +4319,49 @@ index d2729bc..e534b51 100755
    #error "Target doesn't support ifunc"
  #endif
 -- 
-2.26.2
+2.34.1
+
+
+From 80040e061d99166d969e89aa98042c65197dfa8a Mon Sep 17 00:00:00 2001
+From: Matheus Castanho <msc@linux.ibm.com>
+Date: Wed, 23 Feb 2022 17:11:04 -0300
+Subject: [PATCH 10/10] Use inline asm to generate vctzlsbb
+
+There was an issue in the way the vec_cnttz_lsbb builtin was being
+implemented that got fixed on GCC 12, but now we have to use different
+builtins depending on the compiler version. To avoid that, let's use
+inline asm to generate the exact instruction we need.
+---
+ contrib/power/longest_match_power9.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/contrib/power/longest_match_power9.c b/contrib/power/longest_match_power9.c
+index cf586ce..87c008f 100644
+--- a/contrib/power/longest_match_power9.c
++++ b/contrib/power/longest_match_power9.c
+@@ -11,6 +11,7 @@ local inline int vec_match OF((Bytef* scan, Bytef* match))
+ local inline int vec_match(Bytef* scan, Bytef* match)
+ {
+     vector unsigned char vscan, vmatch, vc;
++    int len;
+ 
+     vscan  = *((vector unsigned char *) scan);
+     vmatch = *((vector unsigned char *) match);
+@@ -25,7 +26,13 @@ local inline int vec_match(Bytef* scan, Bytef* match)
+      * on vc (since we used cmpne), counting the number of consecutive
+      * bytes where LSB == 0 is the same as counting the length of the match.
+      */
+-    return vec_cnttz_lsbb(vc);
++    #ifdef __LITTLE_ENDIAN__
++    asm volatile("vctzlsbb %0, %1\n\t" : "=r" (len) : "v" (vc));
++    #else
++    asm volatile("vclzlsbb %0, %1\n\t" : "=r" (len) : "v" (vc));
++    #endif
++
++   return len;
+ }
+ 
+ uInt ZLIB_INTERNAL _longest_match_power9(deflate_state *s, IPos cur_match)
+-- 
+2.34.1
 
