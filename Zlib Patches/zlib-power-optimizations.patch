@@ -1,7 +1,7 @@
-From 40feaee614da1a3abd3f43040b6c469ebddd54d4 Mon Sep 17 00:00:00 2001
-From: Rogerio Alves <rcardoso@linux.ibm.com>
-Date: Wed, 20 Nov 2019 10:35:40 -0300
-Subject: [PATCH 01/10] Preparation for Power optimizations
+From 7edf70d6b010dd803d324bf90f5241a44bec3df7 Mon Sep 17 00:00:00 2001
+From: Manjunath S Matti <mmatti@linux.ibm.com>
+Date: Tue, 15 Nov 2022 02:45:53 -0600
+Subject: [PATCH 1/3] Preparation for Power optimizations
 
 Optimized functions for Power will make use of GNU indirect functions,
 an extension to support different implementations of the same function,
@@ -13,32 +13,35 @@ macro under `contrib/gcc`. This can be reused by other archs as well.
 
 Author: Matheus Castanho <msc@linux.ibm.com>
 Author: Rogerio Alves <rcardoso@linux.ibm.com>
+Signed-off-by: Manjunath Matti <mmatti@linux.ibm.com>
 ---
- CMakeLists.txt         | 67 ++++++++++++++++++++++++++++++++++++++++++
- configure              | 66 +++++++++++++++++++++++++++++++++++++++++
+ CMakeLists.txt         | 71 ++++++++++++++++++++++++++++++++++++++++++
+ configure              | 66 +++++++++++++++++++++++++++++++++++++++
  contrib/README.contrib |  8 +++++
- contrib/gcc/zifunc.h   | 60 +++++++++++++++++++++++++++++++++++++
+ contrib/gcc/zifunc.h   | 60 +++++++++++++++++++++++++++++++++++
  contrib/power/power.h  |  4 +++
- 5 files changed, 205 insertions(+)
+ 5 files changed, 209 insertions(+)
  create mode 100644 contrib/gcc/zifunc.h
  create mode 100644 contrib/power/power.h
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 0fe939d..e762023 100644
+index b412dc7fe..e313f950e 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -7,6 +7,7 @@ set(VERSION "1.2.11")
+@@ -5,6 +5,8 @@ project(zlib C)
  
- option(ASM686 "Enable building i686 assembly implementation")
- option(AMD64 "Enable building amd64 assembly implementation")
+ set(VERSION "1.2.13")
+ 
 +option(POWER "Enable building power implementation")
- 
++
  set(INSTALL_BIN_DIR "${CMAKE_INSTALL_PREFIX}/bin" CACHE PATH "Installation directory for executables")
  set(INSTALL_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Installation directory for libraries")
-@@ -140,6 +141,72 @@ if(CMAKE_COMPILER_IS_GNUCC)
- 		add_definitions(-DASMV)
- 		set_source_files_properties(${ZLIB_ASMS} PROPERTIES LANGUAGE C COMPILE_FLAGS -DNO_UNDERLINE)
- 	endif()
+ set(INSTALL_INC_DIR "${CMAKE_INSTALL_PREFIX}/include" CACHE PATH "Installation directory for headers")
+@@ -126,6 +128,75 @@ if(NOT MINGW)
+     )
+ endif()
+ 
++if(CMAKE_COMPILER_IS_GNUCC)
 +
 +    # test to see if we can use a GNU indirect function to detect and load optimized code at runtime
 +    CHECK_C_SOURCE_COMPILES("
@@ -105,14 +108,16 @@ index 0fe939d..e762023 100644
 +            set(ZLIB_SRCS ${ZLIB_SRCS} ${ZLIB_POWER8} ${ZLIB_POWER9})
 +        endif()
 +    endif()
- endif()
- 
- if(MSVC)
++endif()
++
+ # parse the full version number from zlib.h and include in ZLIB_FULL_VERSION
+ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/zlib.h _zlib_h_contents)
+ string(REGEX REPLACE ".*#define[ \t]+ZLIB_VERSION[ \t]+\"([-0-9A-Za-z.]+)\".*"
 diff --git a/configure b/configure
-index e974d1f..8ab58a7 100755
+index fa4d5daab..9ee7008c3 100755
 --- a/configure
 +++ b/configure
-@@ -826,6 +826,72 @@ EOF
+@@ -828,6 +828,72 @@ EOF
    fi
  fi
  
@@ -186,10 +191,10 @@ index e974d1f..8ab58a7 100755
  echo >> configure.log
  echo ALL = $ALL >> configure.log
 diff --git a/contrib/README.contrib b/contrib/README.contrib
-index a411d5c..0dda15b 100644
+index 5e5f95054..c57b52012 100644
 --- a/contrib/README.contrib
 +++ b/contrib/README.contrib
-@@ -19,6 +19,10 @@ asm686/     by Brian Raiter <breadbox@muppetlabs.com>
+@@ -11,6 +11,10 @@ ada/        by Dmitriy Anisimkov <anisimkov@yahoo.com>
  blast/      by Mark Adler <madler@alumni.caltech.edu>
          Decompressor for output of PKWare Data Compression Library (DCL)
  
@@ -200,7 +205,7 @@ index a411d5c..0dda15b 100644
  delphi/     by Cosmin Truta <cosmint@cs.ubbcluj.ro>
          Support for Delphi and C++ Builder
  
-@@ -63,6 +67,10 @@ minizip/    by Gilles Vollant <info@winimage.com>
+@@ -42,6 +46,10 @@ minizip/    by Gilles Vollant <info@winimage.com>
  pascal/     by Bob Dellaca <bobdl@xtra.co.nz> et al.
          Support for Pascal
  
@@ -213,7 +218,7 @@ index a411d5c..0dda15b 100644
          unambiguous description of the deflate format.
 diff --git a/contrib/gcc/zifunc.h b/contrib/gcc/zifunc.h
 new file mode 100644
-index 0000000..daf4fe4
+index 000000000..daf4fe442
 --- /dev/null
 +++ b/contrib/gcc/zifunc.h
 @@ -0,0 +1,60 @@
@@ -279,7 +284,7 @@ index 0000000..daf4fe4
 +#endif /* Z_IFUNC_H_ */
 diff --git a/contrib/power/power.h b/contrib/power/power.h
 new file mode 100644
-index 0000000..b42c7d6
+index 000000000..b42c7d6c6
 --- /dev/null
 +++ b/contrib/power/power.h
 @@ -0,0 +1,4 @@
@@ -287,1444 +292,35 @@ index 0000000..b42c7d6
 + *               2019 Rogerio Alves    <rogerio.alves@ibm.com>, IBM
 + * For conditions of distribution and use, see copyright notice in zlib.h
 + */
--- 
-2.34.1
 
-
-From 3be4fc9c7dd3529698aa8aaf5271ed8599e290b7 Mon Sep 17 00:00:00 2001
-From: Rogerio Alves <rcardoso@linux.ibm.com>
-Date: Mon, 9 Dec 2019 14:40:53 -0300
-Subject: [PATCH 02/10] Adler32 vector optimization for Power.
-
-This commit implements a Power (POWER8+) vector optimization for Adler32
-checksum using VSX (vector) instructions. The VSX adler32 checksum is up
-to 10x fast than the adler32 baseline code.
-
-Author: Rogerio Alves <rcardoso@linux.ibm.com>
----
- CMakeLists.txt                   |   2 +-
- Makefile.in                      |   8 ++
- adler32.c                        |  11 ++
- configure                        |   4 +-
- contrib/power/adler32_power8.c   | 195 +++++++++++++++++++++++++++++++
- contrib/power/adler32_resolver.c |  15 +++
- contrib/power/power.h            |   3 +
- 7 files changed, 235 insertions(+), 3 deletions(-)
- create mode 100644 contrib/power/adler32_power8.c
- create mode 100644 contrib/power/adler32_resolver.c
-
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index e762023..db6ac70 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -184,7 +184,7 @@ if(CMAKE_COMPILER_IS_GNUCC)
- 
-             if(POWER8)
-                 add_definitions(-DZ_POWER8)
--                set(ZLIB_POWER8 )
-+                set(ZLIB_POWER8 contrib/power/adler32_power8.c)
- 
-                 set_source_files_properties(
-                     ${ZLIB_POWER8}
-diff --git a/Makefile.in b/Makefile.in
-index 5a77949..e343735 100644
---- a/Makefile.in
-+++ b/Makefile.in
-@@ -159,6 +159,9 @@ minigzip64.o: $(SRCDIR)test/minigzip.c $(SRCDIR)zlib.h zconf.h
- adler32.o: $(SRCDIR)adler32.c
- 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)adler32.c
- 
-+adler32_power8.o: $(SRCDIR)contrib/power/adler32_power8.c
-+	$(CC) $(CFLAGS) -mcpu=power8 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/adler32_power8.c
-+
- crc32.o: $(SRCDIR)crc32.c
- 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)crc32.c
- 
-@@ -207,6 +210,11 @@ adler32.lo: $(SRCDIR)adler32.c
- 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/adler32.o $(SRCDIR)adler32.c
- 	-@mv objs/adler32.o $@
- 
-+adler32_power8.lo: $(SRCDIR)contrib/power/adler32_power8.c
-+	-@mkdir objs 2>/dev/null || test -d objs
-+	$(CC) $(SFLAGS) -mcpu=power8 $(ZINC) -DPIC -c -o objs/adler32_power8.o $(SRCDIR)contrib/power/adler32_power8.c
-+	-@mv objs/adler32_power8.o $@
-+
- crc32.lo: $(SRCDIR)crc32.c
- 	-@mkdir objs 2>/dev/null || test -d objs
- 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/crc32.o $(SRCDIR)crc32.c
-diff --git a/adler32.c b/adler32.c
-index d0be438..4bde0fa 100644
---- a/adler32.c
-+++ b/adler32.c
-@@ -131,6 +131,12 @@ uLong ZEXPORT adler32_z(adler, buf, len)
- }
- 
- /* ========================================================================= */
-+
-+#ifdef Z_POWER_OPT
-+/* Rename the default function to avoid naming conflicts */
-+#define adler32 adler32_default
-+#endif /* Z_POWER_OPT */
-+
- uLong ZEXPORT adler32(adler, buf, len)
-     uLong adler;
-     const Bytef *buf;
-@@ -139,6 +145,11 @@ uLong ZEXPORT adler32(adler, buf, len)
-     return adler32_z(adler, buf, len);
- }
- 
-+#ifdef Z_POWER_OPT
-+#undef adler32
-+#include "contrib/power/adler32_resolver.c"
-+#endif /* Z_POWER_OPT */
-+
- /* ========================================================================= */
- local uLong adler32_combine_(adler1, adler2, len2)
-     uLong adler1;
-diff --git a/configure b/configure
-index 8ab58a7..2cdd1d4 100755
---- a/configure
-+++ b/configure
-@@ -869,8 +869,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
- 
-   if tryboth $CC -c $CFLAGS -mcpu=power8 $test.c; then
-     POWER8="-DZ_POWER8"
--    PIC_OBJC="${PIC_OBJC}"
--    OBJC="${OBJC}"
-+    PIC_OBJC="${PIC_OBJC} adler32_power8.lo"
-+    OBJC="${OBJC} adler32_power8.o"
-     echo "Checking for -mcpu=power8 support... Yes." | tee -a configure.log
-   else
-     echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
-diff --git a/contrib/power/adler32_power8.c b/contrib/power/adler32_power8.c
-new file mode 100644
-index 0000000..fdd0864
---- /dev/null
-+++ b/contrib/power/adler32_power8.c
-@@ -0,0 +1,195 @@
-+/*
-+ * Adler32 for POWER 8+ using VSX instructions.
-+ *
-+ * Calculate adler32 checksum for 16 bytes at once using POWER8+ VSX (vector)
-+ * instructions.
-+ *
-+ * If adler32 do 1 byte at time on the first iteration s1 is s1_0 (_n means
-+ * iteration n) is the initial value of adler - at start  _0 is 1 unless
-+ * adler initial value is different than 1. So s1_1 = s1_0 + c[0] after
-+ * the first calculation. For the iteration s1_2 = s1_1 + c[1] and so on.
-+ * Hence, for iteration N, s1_N = s1_(N-1) + c[N] is the value of s1 on
-+ * after iteration N.
-+ *
-+ * Therefore, for s2 and iteration N, s2_N = s2_0 + N*s1_N + N*c[0] +
-+ * N-1*c[1] + ... + c[N]
-+ *
-+ * In a more general way:
-+ *
-+ * s1_N = s1_0 + sum(i=1 to N)c[i]
-+ * s2_N = s2_0 + N*s1 + sum (i=1 to N)(N-i+1)*c[i]
-+ *
-+ * Where s1_N, s2_N are the values for s1, s2 after N iterations. So if we
-+ * can process N-bit at time we can do this at once.
-+ *
-+ * Since VSX can support 16-bit vector instructions, we can process
-+ * 16-bit at time using N = 16 we have:
-+ *
-+ * s1 = s1_16 = s1_(16-1) + c[16] = s1_0 + sum(i=1 to 16)c[i]
-+ * s2 = s2_16 = s2_0 + 16*s1 + sum(i=1 to 16)(16-i+1)*c[i]
-+ *
-+ * After the first iteration we calculate the adler32 checksum for 16 bytes.
-+ *
-+ * For more background about adler32 please check the RFC:
-+ * https://www.ietf.org/rfc/rfc1950.txt
-+ *
-+ * Copyright (C) 2019 Rogerio Alves <rcardoso@linux.ibm.com>, IBM
-+ * For conditions of distribution and use, see copyright notice in zlib.h
-+ *
-+ */
-+
-+#include "../../zutil.h"
-+#include <altivec.h>
-+
-+/* Largest prime smaller than 65536.  */
-+#define BASE 65521U
-+#define NMAX 5552
-+/* NMAX is the largest n such that 255n(n+1)/2 + (n+1)(BASE-1) <= 2^32-1.  */
-+
-+#define DO1(s1,s2,buf,i)  {(s1) += buf[(i)]; (s2) += (s1);}
-+#define DO2(s1,s2,buf,i)  {DO1(s1,s2,buf,i); DO1(s1,s2,buf,i+1);}
-+#define DO4(s1,s2,buf,i)  {DO2(s1,s2,buf,i); DO2(s1,s2,buf,i+2);}
-+#define DO8(s1,s2,buf,i)  {DO4(s1,s2,buf,i); DO4(s1,s2,buf,i+4);}
-+#define DO16(s1,s2,buf)   {DO8(s1,s2,buf,0); DO8(s1,s2,buf,8);}
-+
-+/* Vector across sum unsigned int (saturate).  */
-+inline vector unsigned int vec_sumsu (vector unsigned int __a,
-+        vector unsigned int __b)
-+{
-+  __b = vec_sld(__a, __a, 8);
-+  __b = vec_add(__b, __a);
-+  __a = vec_sld(__b, __b, 4);
-+  __a = vec_add(__a, __b);
-+
-+  return __a;
-+}
-+
-+uLong ZLIB_INTERNAL _adler32_power8 (uLong adler, const Bytef* buf, uInt len)
-+{
-+  /* If buffer is empty or len=0 we need to return adler initial value.  */
-+  if (buf == NULL)
-+      return 1;
-+
-+  unsigned int s1 = adler & 0xffff;
-+  unsigned int s2 = (adler >> 16) & 0xffff;
-+
-+  /* in case user likes doing a byte at a time, keep it fast */
-+  if (len == 1) {
-+      s1 += buf[0];
-+      if (s1 >= BASE)
-+          s1 -= BASE;
-+      s2 += s1;
-+      if (s2 >= BASE)
-+          s2 -= BASE;
-+      return (s2 << 16) | s1;
-+  }
-+
-+  /* Keep it fast for short length buffers. */
-+  if (len < 16) {
-+      while (len--) {
-+          s1 += *buf++;
-+          s2 += s1;
-+      }
-+      if (s1 >= BASE)
-+          s1 -= BASE;
-+      s2 %= BASE;
-+      return (s2 << 16) | s1;
-+  }
-+
-+  /* This is faster than VSX code for len < 64.  */
-+  if (len < 64) {
-+      while (len >= 16) {
-+          len -= 16;
-+          DO16(s1,s2,buf);
-+          buf += 16;
-+      }
-+  } else {
-+      /* Use POWER VSX instructions for len >= 64. */
-+      const vector unsigned int v_zeros = { 0 };
-+      const vector unsigned char v_mul = {16, 15, 14, 13, 12, 11, 10, 9, 8, 7,
-+           6, 5, 4, 3, 2, 1};
-+      const vector unsigned char vsh = vec_splat_u8(4);
-+      const vector unsigned int vmask = {0xffffffff, 0x0, 0x0, 0x0};
-+      vector unsigned int vs1 = { 0 };
-+      vector unsigned int vs2 = { 0 };
-+      vector unsigned int vs1_save = { 0 };
-+      vector unsigned int vsum1, vsum2;
-+      vector unsigned char vbuf;
-+      int n;
-+
-+      vs1[0] = s1;
-+      vs2[0] = s2;
-+
-+      /* Do length bigger than NMAX in blocks of NMAX size.  */
-+      while (len >= NMAX) {
-+          len -= NMAX;
-+          n = NMAX / 16;
-+          do {
-+             vbuf = vec_xl(0, (unsigned char *) buf);
-+             vsum1 = vec_sum4s(vbuf, v_zeros); /* sum(i=1 to 16) buf[i].  */
-+             /* sum(i=1 to 16) buf[i]*(16-i+1).  */
-+             vsum2 = vec_msum(vbuf, v_mul, v_zeros);
-+             /* Save vs1.  */
-+             vs1_save = vec_add(vs1_save, vs1);
-+             /* Accumulate the sums.  */
-+             vs1 = vec_add(vsum1, vs1);
-+             vs2 = vec_add(vsum2, vs2);
-+
-+             buf += 16;
-+          } while (--n);
-+          /* Once each block of NMAX size.  */
-+          vs1 = vec_sumsu(vs1, vsum1);
-+          vs1_save = vec_sll(vs1_save, vsh); /* 16*vs1_save.  */
-+          vs2 = vec_add(vs1_save, vs2);
-+          vs2 = vec_sumsu(vs2, vsum2);
-+
-+          /* vs1[0] = (s1_i + sum(i=1 to 16)buf[i]) mod 65521.  */
-+          vs1[0] = vs1[0] % BASE;
-+          /* vs2[0] = s2_i + 16*s1_save +
-+             sum(i=1 to 16)(16-i+1)*buf[i] mod 65521.  */
-+          vs2[0] = vs2[0] % BASE;
-+
-+          vs1 = vec_and(vs1, vmask);
-+          vs2 = vec_and(vs2, vmask);
-+          vs1_save = v_zeros;
-+      }
-+
-+      /* len is less than NMAX one modulo is needed.  */
-+      if (len >= 16) {
-+          while (len >= 16) {
-+              len -= 16;
-+
-+              vbuf = vec_xl(0, (unsigned char *) buf);
-+
-+              vsum1 = vec_sum4s(vbuf, v_zeros); /* sum(i=1 to 16) buf[i].  */
-+              /* sum(i=1 to 16) buf[i]*(16-i+1).  */
-+              vsum2 = vec_msum(vbuf, v_mul, v_zeros);
-+              /* Save vs1.  */
-+              vs1_save = vec_add(vs1_save, vs1);
-+              /* Accumulate the sums.  */
-+              vs1 = vec_add(vsum1, vs1);
-+              vs2 = vec_add(vsum2, vs2);
-+
-+              buf += 16;
-+          }
-+          /* Since the size will be always less than NMAX we do this once.  */
-+          vs1 = vec_sumsu(vs1, vsum1);
-+          vs1_save = vec_sll(vs1_save, vsh); /* 16*vs1_save.  */
-+          vs2 = vec_add(vs1_save, vs2);
-+          vs2 = vec_sumsu(vs2, vsum2);
-+      }
-+      /* Copy result back to s1, s2 (mod 65521).  */
-+      s1 = vs1[0] % BASE;
-+      s2 = vs2[0] % BASE;
-+   }
-+
-+  /* Process tail (len < 16).  */
-+  while (len--) {
-+      s1 += *buf++;
-+      s2 += s1;
-+  }
-+  s1 %= BASE;
-+  s2 %= BASE;
-+
-+  return (s2 << 16) | s1;
-+}
-diff --git a/contrib/power/adler32_resolver.c b/contrib/power/adler32_resolver.c
-new file mode 100644
-index 0000000..07a1a2c
---- /dev/null
-+++ b/contrib/power/adler32_resolver.c
-@@ -0,0 +1,15 @@
-+/* Copyright (C) 2019 Rogerio Alves <rcardoso@linux.ibm.com>, IBM
-+ * For conditions of distribution and use, see copyright notice in zlib.h
-+ */
-+
-+#include "../gcc/zifunc.h"
-+#include "power.h"
-+
-+Z_IFUNC(adler32) {
-+#ifdef Z_POWER8
-+    if (__builtin_cpu_supports("arch_2_07"))
-+        return _adler32_power8;
-+#endif
-+
-+    return adler32_default;
-+}
-diff --git a/contrib/power/power.h b/contrib/power/power.h
-index b42c7d6..74de1ab 100644
---- a/contrib/power/power.h
-+++ b/contrib/power/power.h
-@@ -2,3 +2,6 @@
-  *               2019 Rogerio Alves    <rogerio.alves@ibm.com>, IBM
-  * For conditions of distribution and use, see copyright notice in zlib.h
-  */
-+#include "../../zutil.h"
-+
-+uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
--- 
-2.34.1
-
-
-From 61e1c1eb20e964e14f89c84020e01aa729446eea Mon Sep 17 00:00:00 2001
-From: Rogerio Alves <rcardoso@linux.ibm.com>
-Date: Tue, 10 Dec 2019 15:04:28 -0300
-Subject: [PATCH 03/10] Tests for Adler32 vector optimization for Power.
-
-This commit add tests for adler32 vector optimization for Power (POWER8+).
-
-Author: Rogerio Alves <rcardoso@linux.ibm.com>
----
- CMakeLists.txt      |  10 ++
- Makefile.in         |  35 +++--
- test/adler32_test.c | 339 ++++++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 374 insertions(+), 10 deletions(-)
- create mode 100644 test/adler32_test.c
-
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index db6ac70..862e5c1 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -297,6 +297,10 @@ endif()
- # Example binaries
- #============================================================================
- 
-+add_executable(adler32_test test/adler32_test.c)
-+target_link_libraries(adler32_test zlib)
-+add_test(adler32_test adler32_test)
-+
- add_executable(example test/example.c)
- target_link_libraries(example zlib)
- add_test(example example)
-@@ -305,6 +309,12 @@ add_executable(minigzip test/minigzip.c)
- target_link_libraries(minigzip zlib)
- 
- if(HAVE_OFF64_T)
-+
-+    add_executable(adler32_test64 test/adler32_test.c)
-+    target_link_libraries(adler32_test64 zlib)
-+    set_target_properties(adler32_test64 PROPERTIES COMPILE_FLAGS "-D_FILE_OFFSET_BITS=64")
-+    add_test(adler32_test64 adler32_test64)
-+
-     add_executable(example64 test/example.c)
-     target_link_libraries(example64 zlib)
-     set_target_properties(example64 PROPERTIES COMPILE_FLAGS "-D_FILE_OFFSET_BITS=64")
-diff --git a/Makefile.in b/Makefile.in
-index e343735..17a5211 100644
---- a/Makefile.in
-+++ b/Makefile.in
-@@ -75,11 +75,11 @@ PIC_OBJS = $(PIC_OBJC) $(PIC_OBJA)
- 
- all: static shared
- 
--static: example$(EXE) minigzip$(EXE)
-+static: adler32_test$(EXE) example$(EXE) minigzip$(EXE)
- 
--shared: examplesh$(EXE) minigzipsh$(EXE)
-+shared: adler32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE)
- 
--all64: example64$(EXE) minigzip64$(EXE)
-+all64: adler32_test64$(EXE) example64$(EXE) minigzip64$(EXE)
- 
- check: test
- 
-@@ -87,7 +87,7 @@ test: all teststatic testshared
- 
- teststatic: static
- 	@TMPST=tmpst_$$; \
--	if echo hello world | ./minigzip | ./minigzip -d && ./example $$TMPST ; then \
-+	if echo hello world | ./minigzip | ./minigzip -d && ./example $$TMPST && ./adler32_test; then \
- 	  echo '		*** zlib test OK ***'; \
- 	else \
- 	  echo '		*** zlib test FAILED ***'; false; \
-@@ -100,7 +100,7 @@ testshared: shared
- 	DYLD_LIBRARY_PATH=`pwd`:$(DYLD_LIBRARY_PATH) ; export DYLD_LIBRARY_PATH; \
- 	SHLIB_PATH=`pwd`:$(SHLIB_PATH) ; export SHLIB_PATH; \
- 	TMPSH=tmpsh_$$; \
--	if echo hello world | ./minigzipsh | ./minigzipsh -d && ./examplesh $$TMPSH; then \
-+	if echo hello world | ./minigzipsh | ./minigzipsh -d && ./examplesh $$TMPSH && ./adler32_testsh; then \
- 	  echo '		*** zlib shared test OK ***'; \
- 	else \
- 	  echo '		*** zlib shared test FAILED ***'; false; \
-@@ -109,7 +109,7 @@ testshared: shared
- 
- test64: all64
- 	@TMP64=tmp64_$$; \
--	if echo hello world | ./minigzip64 | ./minigzip64 -d && ./example64 $$TMP64; then \
-+	if echo hello world | ./minigzip64 | ./minigzip64 -d && ./example64 $$TMP64 && ./adler32_test64; then \
- 	  echo '		*** zlib 64-bit test OK ***'; \
- 	else \
- 	  echo '		*** zlib 64-bit test FAILED ***'; false; \
-@@ -143,12 +143,18 @@ match.lo: match.S
- 	mv _match.o match.lo
- 	rm -f _match.s
- 
-+adler32_test.o: $(SRCDIR)test/adler32_test.c $(SRCDIR)zlib.h zconf.h
-+	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/adler32_test.c
-+
- example.o: $(SRCDIR)test/example.c $(SRCDIR)zlib.h zconf.h
- 	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/example.c
- 
- minigzip.o: $(SRCDIR)test/minigzip.c $(SRCDIR)zlib.h zconf.h
- 	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/minigzip.c
- 
-+adler32_test64.o: $(SRCDIR)test/adler32_test.c $(SRCDIR)zlib.h zconf.h
-+	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/adler32_test.c
-+
- example64.o: $(SRCDIR)test/example.c $(SRCDIR)zlib.h zconf.h
- 	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/example.c
- 
-@@ -293,18 +299,27 @@ placebo $(SHAREDLIBV): $(PIC_OBJS) libz.a
- 	ln -s $@ $(SHAREDLIBM)
- 	-@rmdir objs
- 
-+adler32_test$(EXE): adler32_test.o $(STATICLIB)
-+	$(CC) $(CFLAGS) -o $@ adler32_test.o $(TEST_LDFLAGS)
-+
- example$(EXE): example.o $(STATICLIB)
- 	$(CC) $(CFLAGS) -o $@ example.o $(TEST_LDFLAGS)
- 
- minigzip$(EXE): minigzip.o $(STATICLIB)
- 	$(CC) $(CFLAGS) -o $@ minigzip.o $(TEST_LDFLAGS)
- 
-+adler32_testsh$(EXE): adler32_test.o $(SHAREDLIBV)
-+	$(CC) $(CFLAGS) -o $@ adler32_test.o -L. $(SHAREDLIBV)
-+
- examplesh$(EXE): example.o $(SHAREDLIBV)
- 	$(CC) $(CFLAGS) -o $@ example.o -L. $(SHAREDLIBV)
- 
- minigzipsh$(EXE): minigzip.o $(SHAREDLIBV)
- 	$(CC) $(CFLAGS) -o $@ minigzip.o -L. $(SHAREDLIBV)
- 
-+adler32_test64$(EXE): adler32_test64.o $(STATICLIB)
-+	$(CC) $(CFLAGS) -o $@ adler32_test64.o $(TEST_LDFLAGS)
-+
- example64$(EXE): example64.o $(STATICLIB)
- 	$(CC) $(CFLAGS) -o $@ example64.o $(TEST_LDFLAGS)
- 
-@@ -374,8 +389,8 @@ zconf: $(SRCDIR)zconf.h.in
- mostlyclean: clean
- clean:
- 	rm -f *.o *.lo *~ \
--	   example$(EXE) minigzip$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
--	   example64$(EXE) minigzip64$(EXE) \
-+	   adler32_test$(EXE) example$(EXE) minigzip$(EXE) adler32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
-+	   adler32_test64$(EXE) example64$(EXE) minigzip64$(EXE) \
- 	   infcover \
- 	   libz.* foo.gz so_locations \
- 	   _match.s maketree contrib/infback9/*.o
-@@ -397,7 +412,7 @@ distclean: clean zconf zconf.h.cmakein docs
- tags:
- 	etags $(SRCDIR)*.[ch]
- 
--adler32.o zutil.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
-+adler32.o adler32_test.o zutil.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
- gzclose.o gzlib.o gzread.o gzwrite.o: $(SRCDIR)zlib.h zconf.h $(SRCDIR)gzguts.h
- compress.o example.o minigzip.o uncompr.o: $(SRCDIR)zlib.h zconf.h
- crc32.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)crc32.h
-@@ -407,7 +422,7 @@ inffast.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h $(SRCDIR
- inftrees.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h
- trees.o: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)trees.h
- 
--adler32.lo zutil.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
-+adler32.lo adler32_test.lo zutil.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
- gzclose.lo gzlib.lo gzread.lo gzwrite.lo: $(SRCDIR)zlib.h zconf.h $(SRCDIR)gzguts.h
- compress.lo example.lo minigzip.lo uncompr.lo: $(SRCDIR)zlib.h zconf.h
- crc32.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)crc32.h
-diff --git a/test/adler32_test.c b/test/adler32_test.c
-new file mode 100644
-index 0000000..8042295
---- /dev/null
-+++ b/test/adler32_test.c
-@@ -0,0 +1,339 @@
-+/* adler32_test.c -- unit test for adler32 in the zlib compression library
-+ * Copyright (C) 2019 Rogerio Alves <rcardoso@linux.ibm.com>, IBM
-+ * For conditions of distribution and use, see copyright notice in zlib.h
-+ */
-+
-+#include "zlib.h"
-+#include <stdio.h>
-+
-+#ifdef STDC
-+#  include <string.h>
-+#  include <stdlib.h>
-+#endif
-+
-+void test_adler32  OF((uLong adler, Byte* buf, z_size_t len, uLong chk, int line));
-+int main           OF((void));
-+
-+typedef struct {
-+    int line;
-+    uLong adler;
-+    char* buf;
-+    int len;
-+    uLong expect;
-+} adler32_test;
-+
-+void test_adler32(adler, buf, len, chk, line)
-+    uLong adler;
-+    Byte *buf;
-+    z_size_t len;
-+    uLong chk;
-+    int line;
-+{
-+    uLong res = adler32(adler, buf, len);
-+    if (res != chk) {
-+        fprintf(stderr, "FAIL [%d]: adler32 returned 0x%08X expected 0x%08X\n",
-+                line, (unsigned int)res, (unsigned int)chk);
-+        exit(1);
-+    }
-+}
-+
-+static const adler32_test tests[] = {
-+   {__LINE__,0x1, 0x0, 0, 0x1},
-+   {__LINE__,0x1, "", 1, 0x10001},
-+   {__LINE__,0x1, "a", 1, 0x620062},
-+   {__LINE__,0x1, "abacus", 6, 0x8400270},
-+   {__LINE__,0x1, "backlog", 7, 0xb1f02d4},
-+   {__LINE__,0x1, "campfire", 8, 0xea10348},
-+   {__LINE__,0x1, "delta", 5, 0x61a020b},
-+   {__LINE__,0x1, "executable", 10, 0x16fa0423},
-+   {__LINE__,0x1, "file", 4, 0x41401a1},
-+   {__LINE__,0x1, "greatest", 8, 0xefa0360},
-+   {__LINE__,0x1, "inverter", 8, 0xf6f0370},
-+   {__LINE__,0x1, "jigsaw", 6, 0x8bd0286},
-+   {__LINE__,0x1, "karate", 6, 0x8a50279},
-+   {__LINE__,0x1, "landscape", 9, 0x126a03ac},
-+   {__LINE__,0x1, "machine", 7, 0xb5302d6},
-+   {__LINE__,0x1, "nanometer", 9, 0x12d803ca},
-+   {__LINE__,0x1, "oblivion", 8, 0xf220363},
-+   {__LINE__,0x1, "panama", 6, 0x8a1026f},
-+   {__LINE__,0x1, "quest", 5, 0x6970233},
-+   {__LINE__,0x1, "resource", 8, 0xf8d0369},
-+   {__LINE__,0x1, "secret", 6, 0x8d10287},
-+   {__LINE__,0x1, "ultimate", 8, 0xf8d0366},
-+   {__LINE__,0x1, "vector", 6, 0x8fb0294},
-+   {__LINE__,0x1, "walrus", 6, 0x918029f},
-+   {__LINE__,0x1, "xeno", 4, 0x45e01bb},
-+   {__LINE__,0x1, "yelling", 7, 0xbfe02f5},
-+   {__LINE__,0x1, "zero", 4, 0x46e01c1},
-+   {__LINE__,0x1, "4BJD7PocN1VqX0jXVpWB", 20, 0x3eef064d},
-+   {__LINE__,0x1, "F1rPWI7XvDs6nAIRx41l", 20, 0x425d065f},
-+   {__LINE__,0x1, "ldhKlsVkPFOveXgkGtC2", 20, 0x4f1a073e},
-+   {__LINE__,0x1, "5KKnGOOrs8BvJ35iKTOS", 20, 0x42290650},
-+   {__LINE__,0x1, "0l1tw7GOcem06Ddu7yn4", 20, 0x43fd0690},
-+   {__LINE__,0x1, "MCr47CjPIn9R1IvE1Tm5", 20, 0x3f770609},
-+   {__LINE__,0x1, "UcixbzPKTIv0SvILHVdO", 20, 0x4c7c0703},
-+   {__LINE__,0x1, "dGnAyAhRQDsWw0ESou24", 20, 0x48ac06b7},
-+   {__LINE__,0x1, "di0nvmY9UYMYDh0r45XT", 20, 0x489a0698},
-+   {__LINE__,0x1, "2XKDwHfAhFsV0RhbqtvH", 20, 0x44a906e6},
-+   {__LINE__,0x1, "ZhrANFIiIvRnqClIVyeD", 20, 0x4a29071c},
-+   {__LINE__,0x1, "v7Q9ehzioTOVeDIZioT1", 20, 0x4a7706f9},
-+   {__LINE__,0x1, "Yod5hEeKcYqyhfXbhxj2", 20, 0x4ce60769},
-+   {__LINE__,0x1, "GehSWY2ay4uUKhehXYb0", 20, 0x48ae06e5},
-+   {__LINE__,0x1, "kwytJmq6UqpflV8Y8GoE", 20, 0x51d60750},
-+   {__LINE__,0x1, "70684206568419061514", 20, 0x2b100414},
-+   {__LINE__,0x1, "42015093765128581010", 20, 0x2a550405},
-+   {__LINE__,0x1, "88214814356148806939", 20, 0x2b450423},
-+   {__LINE__,0x1, "43472694284527343838", 20, 0x2b460421},
-+   {__LINE__,0x1, "49769333513942933689", 20, 0x2bc1042b},
-+   {__LINE__,0x1, "54979784887993251199", 20, 0x2ccd043d},
-+   {__LINE__,0x1, "58360544869206793220", 20, 0x2b68041a},
-+   {__LINE__,0x1, "27347953487840714234", 20, 0x2b84041d},
-+   {__LINE__,0x1, "07650690295365319082", 20, 0x2afa0417},
-+   {__LINE__,0x1, "42655507906821911703", 20, 0x2aff0412},
-+   {__LINE__,0x1, "29977409200786225655", 20, 0x2b8d0420},
-+   {__LINE__,0x1, "85181542907229116674", 20, 0x2b140419},
-+   {__LINE__,0x1, "87963594337989416799", 20, 0x2c8e043f},
-+   {__LINE__,0x1, "21395988329504168551", 20, 0x2b68041f},
-+   {__LINE__,0x1, "51991013580943379423", 20, 0x2af10417},
-+   {__LINE__,0x1, "*]+@!);({_$;}[_},?{?;(_?,=-][@", 30, 0x7c9d0841},
-+   {__LINE__,0x1, "_@:_).&(#.[:[{[:)$++-($_;@[)}+", 30, 0x71060751},
-+   {__LINE__,0x1, "&[!,[$_==}+.]@!;*(+},[;:)$;)-@", 30, 0x7095070a},
-+   {__LINE__,0x1, "]{.[.+?+[[=;[?}_#&;[=)__$$:+=_", 30, 0x82530815},
-+   {__LINE__,0x1, "-%.)=/[@].:.(:,()$;=%@-$?]{%+%", 30, 0x61250661},
-+   {__LINE__,0x1, "+]#$(@&.=:,*];/.!]%/{:){:@(;)$", 30, 0x642006a3},
-+   {__LINE__,0x1, ")-._.:?[&:.=+}(*$/=!.${;(=$@!}", 30, 0x674206cb},
-+   {__LINE__,0x1, ":(_*&%/[[}+,?#$&*+#[([*-/#;%(]", 30, 0x67670680},
-+   {__LINE__,0x1, "{[#-;:$/{)(+[}#]/{&!%(@)%:@-$:", 30, 0x7547070f},
-+   {__LINE__,0x1, "_{$*,}(&,@.)):=!/%(&(,,-?$}}}!", 30, 0x69ea06ee},
-+   {__LINE__,0x1, "e$98KNzqaV)Y:2X?]77].{gKRD4G5{mHZk,Z)SpU%L3FSgv!Wb8MLAFdi{+fp)c,@8m6v)yXg@]HBDFk?.4&}g5_udE*JHCiH=aL", 100, 0x1b01e92},
-+   {__LINE__,0x1, "r*Fd}ef+5RJQ;+W=4jTR9)R*p!B;]Ed7tkrLi;88U7g@3v!5pk2X6D)vt,.@N8c]@yyEcKi[vwUu@.Ppm@C6%Mv*3Nw}Y,58_aH)", 100, 0xfbdb1e96},
-+   {__LINE__,0x1, "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&", 100, 0x47a61ec8},
-+   {__LINE__,0x1, "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"
-+    "byRKqAu3J", 5552, 0x8b81718f},
-+   {__LINE__,0x7a30360d, 0x0, 0, 0x1},
-+   {__LINE__,0x6fd767ee, "", 1, 0xd7c567ee},
-+   {__LINE__,0xefeb7589, "a", 1, 0x65e475ea},
-+   {__LINE__,0x61cf7e6b, "abacus", 6, 0x60b880da},
-+   {__LINE__,0xdc712e2, "backlog", 7, 0x9d0d15b5},
-+   {__LINE__,0xad23c7fd, "campfire", 8, 0xfbfecb44},
-+   {__LINE__,0x85cb2317, "delta", 5, 0x3b622521},
-+   {__LINE__,0x9eed31b0, "executable", 10, 0xa6db35d2},
-+   {__LINE__,0xb94f34ca, "file", 4, 0x9096366a},
-+   {__LINE__,0xab058a2, "greatest", 8, 0xded05c01},
-+   {__LINE__,0x5bff2b7a, "inverter", 8, 0xc7452ee9},
-+   {__LINE__,0x605c9a5f, "jigsaw", 6, 0x7899ce4},
-+   {__LINE__,0x51bdeea5, "karate", 6, 0xf285f11d},
-+   {__LINE__,0x85c21c79, "landscape", 9, 0x98732024},
-+   {__LINE__,0x97216f56, "machine", 7, 0xadf4722b},
-+   {__LINE__,0x18444af2, "nanometer", 9, 0xcdb34ebb},
-+   {__LINE__,0xbe6ce359, "oblivion", 8, 0xe8b7e6bb},
-+   {__LINE__,0x843071f1, "panama", 6, 0x389e745f},
-+   {__LINE__,0xf2480c60, "quest", 5, 0x36c90e92},
-+   {__LINE__,0x2d2feb3d, "resource", 8, 0x9705eea5},
-+   {__LINE__,0x7490310a, "secret", 6, 0xa3a63390},
-+   {__LINE__,0x97d247d4, "ultimate", 8, 0xe6154b39},
-+   {__LINE__,0x93cf7599, "vector", 6, 0x5e87782c},
-+   {__LINE__,0x73c84278, "walrus", 6, 0xbc84516},
-+   {__LINE__,0x228a87d1, "xeno", 4, 0x4646898b},
-+   {__LINE__,0xa7a048d0, "yelling", 7, 0xb1654bc4},
-+   {__LINE__,0x1f0ded40, "zero", 4, 0xd8a4ef00},
-+   {__LINE__,0xa804a62f, "4BJD7PocN1VqX0jXVpWB", 20, 0xe34eac7b},
-+   {__LINE__,0x508fae6a, "F1rPWI7XvDs6nAIRx41l", 20, 0x33f2b4c8},
-+   {__LINE__,0xe5adaf4f, "ldhKlsVkPFOveXgkGtC2", 20, 0xe7b1b68c},
-+   {__LINE__,0x67136a40, "5KKnGOOrs8BvJ35iKTOS", 20, 0xf6a0708f},
-+   {__LINE__,0xb00c4a10, "0l1tw7GOcem06Ddu7yn4", 20, 0xbd8f509f},
-+   {__LINE__,0x2e0c84b5, "MCr47CjPIn9R1IvE1Tm5", 20, 0xcc298abd},
-+   {__LINE__,0x81238d44, "UcixbzPKTIv0SvILHVdO", 20, 0xd7809446},
-+   {__LINE__,0xf853aa92, "dGnAyAhRQDsWw0ESou24", 20, 0x9525b148},
-+   {__LINE__,0x5a692325, "di0nvmY9UYMYDh0r45XT", 20, 0x620029bc},
-+   {__LINE__,0x3275b9f, "2XKDwHfAhFsV0RhbqtvH", 20, 0x70916284},
-+   {__LINE__,0x38371feb, "ZhrANFIiIvRnqClIVyeD", 20, 0xd52706},
-+   {__LINE__,0xafc8bf62, "v7Q9ehzioTOVeDIZioT1", 20, 0xeeb4c65a},
-+   {__LINE__,0x9b07db73, "Yod5hEeKcYqyhfXbhxj2", 20, 0xde3e2db},
-+   {__LINE__,0xe75b214, "GehSWY2ay4uUKhehXYb0", 20, 0x4171b8f8},
-+   {__LINE__,0x72d0fe6f, "kwytJmq6UqpflV8Y8GoE", 20, 0xa66a05cd},
-+   {__LINE__,0xf857a4b1, "70684206568419061514", 20, 0x1f9a8c4},
-+   {__LINE__,0x54b8e14, "42015093765128581010", 20, 0x49c19218},
-+   {__LINE__,0xd6aa5616, "88214814356148806939", 20, 0xbbfc5a38},
-+   {__LINE__,0x11e63098, "43472694284527343838", 20, 0x93434b8},
-+   {__LINE__,0xbe92385, "49769333513942933689", 20, 0xfe1827af},
-+   {__LINE__,0x49511de0, "54979784887993251199", 20, 0xcba8221c},
-+   {__LINE__,0x3db13bc1, "58360544869206793220", 20, 0x14643fda},
-+   {__LINE__,0xbb899bea, "27347953487840714234", 20, 0x1604a006},
-+   {__LINE__,0xf6cd9436, "07650690295365319082", 20, 0xb69f984c},
-+   {__LINE__,0x9109e6c3, "42655507906821911703", 20, 0xc43eead4},
-+   {__LINE__,0x75770fc, "29977409200786225655", 20, 0x707751b},
-+   {__LINE__,0x69b1d19b, "85181542907229116674", 20, 0xf5bdd5b3},
-+   {__LINE__,0xc6132975, "87963594337989416799", 20, 0x2fed2db3},
-+   {__LINE__,0xd58cb00c, "21395988329504168551", 20, 0xc2a2b42a},
-+   {__LINE__,0xb63b8caa, "51991013580943379423", 20, 0xdf0590c0},
-+   {__LINE__,0x8a45a2b8, "*]+@!);({_$;}[_},?{?;(_?,=-][@", 30, 0x1980aaf8},
-+   {__LINE__,0xcbe95b78, "_@:_).&(#.[:[{[:)$++-($_;@[)}+", 30, 0xf58662c8},
-+   {__LINE__,0x4ef8a54b, "&[!,[$_==}+.]@!;*(+},[;:)$;)-@", 30, 0x1f65ac54},
-+   {__LINE__,0x76ad267a, "]{.[.+?+[[=;[?}_#&;[=)__$$:+=_", 30, 0x7b792e8e},
-+   {__LINE__,0x569e613c, "-%.)=/[@].:.(:,()$;=%@-$?]{%+%", 30, 0x1d61679c},
-+   {__LINE__,0x36aa61da, "+]#$(@&.=:,*];/.!]%/{:){:@(;)$", 30, 0x12ec687c},
-+   {__LINE__,0xf67222df, ")-._.:?[&:.=+}(*$/=!.${;(=$@!}", 30, 0x740329a9},
-+   {__LINE__,0x74b34fd3, ":(_*&%/[[}+,?#$&*+#[([*-/#;%(]", 30, 0x374c5652},
-+   {__LINE__,0x351fd770, "{[#-;:$/{)(+[}#]/{&!%(@)%:@-$:", 30, 0xeadfde7e},
-+   {__LINE__,0xc45aef77, "_{$*,}(&,@.)):=!/%(&(,,-?$}}}!", 30, 0x3fcbf664},
-+   {__LINE__,0xd034ea71, "e$98KNzqaV)Y:2X?]77].{gKRD4G5{mHZk,Z)SpU%L3FSgv!Wb8MLAFdi{+fp)c,@8m6v)yXg@]HBDFk?.4&}g5_udE*JHCiH=aL", 100, 0x6b080911},
-+   {__LINE__,0xdeadc0de, "r*Fd}ef+5RJQ;+W=4jTR9)R*p!B;]Ed7tkrLi;88U7g@3v!5pk2X6D)vt,.@N8c]@yyEcKi[vwUu@.Ppm@C6%Mv*3Nw}Y,58_aH)", 100, 0x355fdf73},
-+   {__LINE__,0xba5eba11, "h{bcmdC+a;t+Cf{6Y_dFq-{X4Yu&7uNfVDh?q&_u.UWJU],-GiH7ADzb7-V.Q%4=+v!$L9W+T=bP]$_:]Vyg}A.ygD.r;h-D]m%&", 100, 0xb48bd8d8},
-+   {__LINE__,0x7712aa45, "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"
-+    "byRKqAu3J", 5552, 0x7dc51be2},
-+};
-+
-+static const int test_size = sizeof(tests) / sizeof(tests[0]);
-+
-+int main(void)
-+{
-+    int i;
-+    for (i = 0; i < test_size; i++) {
-+        test_adler32(tests[i].adler, (Byte*) tests[i].buf, tests[i].len,
-+                   tests[i].expect, tests[i].line);
-+    }
-+    return 0;
-+}
--- 
-2.34.1
-
-
-From ee461375b245977cb4f0bbf5c92f8aa4b7f3afe1 Mon Sep 17 00:00:00 2001
-From: Matheus Castanho <msc@linux.ibm.com>
-Date: Tue, 29 Oct 2019 18:04:11 -0300
-Subject: [PATCH 04/10] Add vectorized longest_match for Power
-
-This commit introduces an optimized version of the longest_match
-function for Power processors. It uses VSX instructions to match
-16 bytes at a time on each comparison, instead of one by one.
-
-Author: Matheus Castanho <msc@linux.ibm.com>
----
- CMakeLists.txt                         |   3 +-
- Makefile.in                            |   8 ++
- configure                              |   4 +-
- contrib/power/longest_match_power9.c   | 182 +++++++++++++++++++++++++
- contrib/power/longest_match_resolver.c |  15 ++
- contrib/power/power.h                  |   3 +
- deflate.c                              |  13 ++
- 7 files changed, 225 insertions(+), 3 deletions(-)
- create mode 100644 contrib/power/longest_match_power9.c
- create mode 100644 contrib/power/longest_match_resolver.c
-
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 862e5c1..a52fa6c 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -196,7 +196,8 @@ if(CMAKE_COMPILER_IS_GNUCC)
- 
-             if(POWER9)
-                 add_definitions(-DZ_POWER9)
--                set(ZLIB_POWER9 )
-+                set(ZLIB_POWER9
-+                    contrib/power/longest_match_power9.c)
- 
-                 set_source_files_properties(
-                     ${ZLIB_POWER9}
-diff --git a/Makefile.in b/Makefile.in
-index 17a5211..8b407ae 100644
---- a/Makefile.in
-+++ b/Makefile.in
-@@ -174,6 +174,9 @@ crc32.o: $(SRCDIR)crc32.c
- deflate.o: $(SRCDIR)deflate.c
- 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)deflate.c
- 
-+longest_match_power9.o: $(SRCDIR)contrib/power/longest_match_power9.c
-+	$(CC) $(CFLAGS) -mcpu=power9 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/longest_match_power9.c
-+
- infback.o: $(SRCDIR)infback.c
- 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)infback.c
- 
-@@ -231,6 +234,11 @@ deflate.lo: $(SRCDIR)deflate.c
- 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/deflate.o $(SRCDIR)deflate.c
- 	-@mv objs/deflate.o $@
- 
-+longest_match_power9.lo: $(SRCDIR)contrib/power/longest_match_power9.c
-+	-@mkdir objs 2>/dev/null || test -d objs
-+	$(CC) $(SFLAGS) -mcpu=power9 $(ZINC) -DPIC -c -o objs/longest_match_power9.o $(SRCDIR)contrib/power/longest_match_power9.c
-+	-@mv objs/longest_match_power9.o $@
-+
- infback.lo: $(SRCDIR)infback.c
- 	-@mkdir objs 2>/dev/null || test -d objs
- 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/infback.o $(SRCDIR)infback.c
-diff --git a/configure b/configure
-index 2cdd1d4..2b90134 100755
---- a/configure
-+++ b/configure
-@@ -878,8 +878,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
- 
-   if tryboth $CC -c $CFLAGS -mcpu=power9 $test.c; then
-     POWER9="-DZ_POWER9"
--    PIC_OBJC="${PIC_OBJC}"
--    OBJC="${OBJC}"
-+    PIC_OBJC="$PIC_OBJC longest_match_power9.lo"
-+    OBJC="$OBJC longest_match_power9.o"
-     echo "Checking for -mcpu=power9 support... Yes." | tee -a configure.log
-   else
-     echo "Checking for -mcpu=power9 support... No." | tee -a configure.log
-diff --git a/contrib/power/longest_match_power9.c b/contrib/power/longest_match_power9.c
-new file mode 100644
-index 0000000..cf586ce
---- /dev/null
-+++ b/contrib/power/longest_match_power9.c
-@@ -0,0 +1,182 @@
-+/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
-+ * For conditions of distribution and use, see copyright notice in zlib.h
-+ */
-+
-+#include <altivec.h>
-+#include "../../deflate.h"
-+
-+local inline int vec_match OF((Bytef* scan, Bytef* match))
-+    __attribute__((always_inline));
-+
-+local inline int vec_match(Bytef* scan, Bytef* match)
-+{
-+    vector unsigned char vscan, vmatch, vc;
-+
-+    vscan  = *((vector unsigned char *) scan);
-+    vmatch = *((vector unsigned char *) match);
-+
-+    /* Compare 16 bytes at a time.
-+     * Each byte of vc will be either all ones or all zeroes,
-+     * depending on the result of the comparison
-+     */
-+    vc = (vector unsigned char) vec_cmpne(vscan,vmatch);
-+
-+    /* Since the index of matching bytes will contain only zeroes
-+     * on vc (since we used cmpne), counting the number of consecutive
-+     * bytes where LSB == 0 is the same as counting the length of the match.
-+     */
-+    return vec_cnttz_lsbb(vc);
-+}
-+
-+uInt ZLIB_INTERNAL _longest_match_power9(deflate_state *s, IPos cur_match)
-+{
-+    unsigned chain_length = s->max_chain_length;/* max hash chain length */
-+    register Bytef *scan = s->window + s->strstart; /* current string */
-+    register Bytef *match;                      /* matched string */
-+    register int len;                           /* length of current match */
-+    int best_len = (int)s->prev_length;         /* best match length so far */
-+    int nice_match = s->nice_match;             /* stop if match long enough */
-+    int mbytes;                                 /* matched bytes inside loop */
-+    IPos limit = s->strstart > (IPos)MAX_DIST(s) ?
-+        s->strstart - (IPos)MAX_DIST(s) : 0;
-+    /* Stop when cur_match becomes <= limit. To simplify the code,
-+     * we prevent matches with the string of window index 0.
-+     */
-+    Posf *prev = s->prev;
-+    uInt wmask = s->w_mask;
-+
-+#if (MAX_MATCH == 258)
-+    /* Compare the last two bytes at once. */
-+    register Bytef *strend2 = s->window + s->strstart + MAX_MATCH - 2;
-+    register ush scan_end   = *(ushf*)(scan+best_len-1);
-+#else
-+    register Bytef *strend = s->window + s->strstart + MAX_MATCH;
-+    register Byte scan_end1  = scan[best_len-1];
-+    register Byte scan_end   = scan[best_len];
-+#endif
-+
-+    /* The code is optimized for HASH_BITS >= 8 and MAX_MATCH-2 multiple of 16.
-+     * It is easy to get rid of this optimization if necessary.
-+     */
-+    Assert(s->hash_bits >= 8 && MAX_MATCH == 258, "Code too clever");
-+
-+    /* Do not waste too much time if we already have a good match: */
-+    if (s->prev_length >= s->good_match) {
-+        chain_length >>= 2;
-+    }
-+    /* Do not look for matches beyond the end of the input. This is necessary
-+     * to make deflate deterministic.
-+     */
-+    if ((uInt)nice_match > s->lookahead) nice_match = (int)s->lookahead;
-+
-+    Assert((ulg)s->strstart <= s->window_size-MIN_LOOKAHEAD, "need lookahead");
-+
-+    do {
-+        Assert(cur_match < s->strstart, "no future");
-+        match = s->window + cur_match;
-+
-+        /* Skip to next match if the match length cannot increase
-+         * or if the match length is less than 2.  Note that the checks below
-+         * for insufficient lookahead only occur occasionally for performance
-+         * reasons.  Therefore uninitialized memory will be accessed, and
-+         * conditional jumps will be made that depend on those values.
-+         * However the length of the match is limited to the lookahead, so
-+         * the output of deflate is not affected by the uninitialized values.
-+         */
-+
-+/* MAX_MATCH - 2 should be a multiple of 16 for this optimization to work. */
-+#if (MAX_MATCH == 258)
-+
-+        /* Compare ending (2 bytes) and beginning of potential match.
-+         *
-+         * On Power processors, loading a 16-byte vector takes only 1 extra
-+         * cycle compared to a regular byte load. So instead of comparing the
-+         * first two bytes and then the rest later if they match, we can compare
-+         * the first 16 at once, and when we have a match longer than 2, we will
-+         * already have the result of comparing the first 16 bytes saved in mbytes.
-+         */
-+        if (*(ushf*)(match+best_len-1) != scan_end ||
-+             (mbytes = vec_match(scan,match)) < 3) continue;
-+
-+        scan  += mbytes;
-+        match += mbytes;
-+
-+        /* In case when we may have a match longer than 16, we perform further
-+         * comparisons in chunks of 16 and keep going while all bytes match.
-+         */
-+        while(mbytes == 16) {
-+            mbytes = vec_match(scan,match);
-+            scan += mbytes;
-+            match += mbytes;
-+
-+            /* We also have to limit the maximum match based on MAX_MATCH.
-+             * Since we are comparing 16 bytes at a time and MAX_MATCH == 258 (to
-+             * comply with default implementation), we should stop comparing when
-+             * we have matched 256 bytes, which happens when scan == strend2.
-+             * In this ("rare") case, we have to check the remaining 2 bytes
-+             * individually using common load and compare operations.
-+             */
-+            if(scan >= strend2) {
-+                if(*scan == *match) {
-+                    if(*++scan == *++match)
-+                        scan++;
-+                }
-+                break;
-+            }
-+        }
-+
-+        Assert(scan <= s->window+(unsigned)(s->window_size-1), "wild scan");
-+
-+        len = (MAX_MATCH - 2) - (int)(strend2 - scan);
-+        scan = strend2 - (MAX_MATCH - 2);
-+
-+#else /* MAX_MATCH == 258 */
-+
-+        if (match[best_len]   != scan_end  ||
-+            match[best_len-1] != scan_end1 ||
-+            *match            != *scan     ||
-+            *++match          != scan[1])      continue;
-+
-+        /* The check at best_len-1 can be removed because it will be made
-+         * again later. (This heuristic is not always a win.)
-+         * It is not necessary to compare scan[2] and match[2] since they
-+         * are always equal when the other bytes match, given that
-+         * the hash keys are equal and that HASH_BITS >= 8.
-+         */
-+        scan += 2, match++;
-+        Assert(*scan == *match, "match[2]?");
-+
-+        /* We check for insufficient lookahead only every 8th comparison;
-+         * the 256th check will be made at strstart+258.
-+         */
-+        do {
-+        } while (*++scan == *++match && *++scan == *++match &&
-+                 *++scan == *++match && *++scan == *++match &&
-+                 *++scan == *++match && *++scan == *++match &&
-+                 *++scan == *++match && *++scan == *++match &&
-+                 scan < strend);
-+
-+        Assert(scan <= s->window+(unsigned)(s->window_size-1), "wild scan");
-+
-+        len = MAX_MATCH - (int)(strend - scan);
-+        scan = strend - MAX_MATCH;
-+
-+#endif /* MAX_MATCH == 258 */
-+
-+        if (len > best_len) {
-+            s->match_start = cur_match;
-+            best_len = len;
-+            if (len >= nice_match) break;
-+#if (MAX_MATCH == 258)
-+            scan_end = *(ushf*)(scan+best_len-1);
-+#else
-+            scan_end1  = scan[best_len-1];
-+            scan_end   = scan[best_len];
-+#endif
-+        }
-+    } while ((cur_match = prev[cur_match & wmask]) > limit
-+             && --chain_length != 0);
-+
-+    if ((uInt)best_len <= s->lookahead) return (uInt)best_len;
-+    return s->lookahead;
-+}
-diff --git a/contrib/power/longest_match_resolver.c b/contrib/power/longest_match_resolver.c
-new file mode 100644
-index 0000000..e81f28a
---- /dev/null
-+++ b/contrib/power/longest_match_resolver.c
-@@ -0,0 +1,15 @@
-+/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
-+ * For conditions of distribution and use, see copyright notice in zlib.h
-+ */
-+
-+#include "../gcc/zifunc.h"
-+#include "power.h"
-+
-+Z_IFUNC(longest_match) {
-+#ifdef Z_POWER9
-+    if (__builtin_cpu_supports("arch_3_00"))
-+        return _longest_match_power9;
-+#endif
-+
-+    return longest_match_default;
-+}
-diff --git a/contrib/power/power.h b/contrib/power/power.h
-index 74de1ab..39f209f 100644
---- a/contrib/power/power.h
-+++ b/contrib/power/power.h
-@@ -2,6 +2,9 @@
-  *               2019 Rogerio Alves    <rogerio.alves@ibm.com>, IBM
-  * For conditions of distribution and use, see copyright notice in zlib.h
-  */
-+#include "../../deflate.h"
- #include "../../zutil.h"
- 
- uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
-+
-+uInt _longest_match_power9(deflate_state *s, IPos cur_match);
-diff --git a/deflate.c b/deflate.c
-index 1ec7614..1e3aa18 100644
---- a/deflate.c
-+++ b/deflate.c
-@@ -1233,6 +1233,14 @@ local void lm_init (s)
- /* For 80x86 and 680x0, an optimized version will be provided in match.asm or
-  * match.S. The code will be functionally equivalent.
-  */
-+
-+#ifdef Z_POWER_OPT
-+/* Rename function so resolver can use its symbol. The default version will be
-+ * returned by the resolver if the host has no support for an optimized version.
-+ */
-+#define longest_match longest_match_default
-+#endif /* Z_POWER_OPT */
-+
- local uInt longest_match(s, cur_match)
-     deflate_state *s;
-     IPos cur_match;                             /* current match */
-@@ -1377,6 +1385,11 @@ local uInt longest_match(s, cur_match)
- }
- #endif /* ASMV */
- 
-+#ifdef Z_POWER_OPT
-+#undef longest_match
-+#include "contrib/power/longest_match_resolver.c"
-+#endif /* Z_POWER_OPT */
-+
- #else /* FASTEST */
- 
- /* ---------------------------------------------------------------------------
--- 
-2.34.1
-
-
-From b3f9640f717d3abdaf82d06857e247bf0ef8c82a Mon Sep 17 00:00:00 2001
-From: Matheus Castanho <msc@linux.ibm.com>
-Date: Wed, 27 Nov 2019 10:18:10 -0300
-Subject: [PATCH 05/10] Add optimized slide_hash for Power
-
-Considerable time is spent on deflate.c:slide_hash() during
-deflate. This commit introduces a new slide_hash function that
-uses VSX vector instructions to slide 8 hash elements at a time,
-instead of just one as the standard code does.
-
-The choice between the optimized and default versions is made only
-on the first call to the function, enabling a fallback to standard
-behavior if the host processor does not support VSX instructions,
-so the same binary can be used for multiple Power processor
-versions.
-
-Author: Matheus Castanho <msc@linux.ibm.com>
----
- CMakeLists.txt                      |  4 +-
- Makefile.in                         |  8 ++++
- configure                           |  4 +-
- contrib/power/power.h               |  2 +
- contrib/power/slide_hash_power8.c   | 63 +++++++++++++++++++++++++++++
- contrib/power/slide_hash_resolver.c | 15 +++++++
- deflate.c                           | 12 ++++++
- 7 files changed, 105 insertions(+), 3 deletions(-)
- create mode 100644 contrib/power/slide_hash_power8.c
- create mode 100644 contrib/power/slide_hash_resolver.c
-
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index a52fa6c..65e80b0 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -184,7 +184,9 @@ if(CMAKE_COMPILER_IS_GNUCC)
- 
-             if(POWER8)
-                 add_definitions(-DZ_POWER8)
--                set(ZLIB_POWER8 contrib/power/adler32_power8.c)
-+                set(ZLIB_POWER8
-+                    contrib/power/adler32_power8.c
-+                    contrib/power/slide_hash_power8.c)
- 
-                 set_source_files_properties(
-                     ${ZLIB_POWER8}
-diff --git a/Makefile.in b/Makefile.in
-index 8b407ae..be0cc94 100644
---- a/Makefile.in
-+++ b/Makefile.in
-@@ -177,6 +177,9 @@ deflate.o: $(SRCDIR)deflate.c
- longest_match_power9.o: $(SRCDIR)contrib/power/longest_match_power9.c
- 	$(CC) $(CFLAGS) -mcpu=power9 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/longest_match_power9.c
- 
-+slide_hash_power8.o: $(SRCDIR)contrib/power/slide_hash_power8.c
-+	$(CC) $(CFLAGS) -mcpu=power8 $(ZINC) -c -o $@ $(SRCDIR)contrib/power/slide_hash_power8.c
-+
- infback.o: $(SRCDIR)infback.c
- 	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)infback.c
- 
-@@ -239,6 +242,11 @@ longest_match_power9.lo: $(SRCDIR)contrib/power/longest_match_power9.c
- 	$(CC) $(SFLAGS) -mcpu=power9 $(ZINC) -DPIC -c -o objs/longest_match_power9.o $(SRCDIR)contrib/power/longest_match_power9.c
- 	-@mv objs/longest_match_power9.o $@
- 
-+slide_hash_power8.lo: $(SRCDIR)contrib/power/slide_hash_power8.c
-+	-@mkdir objs 2>/dev/null || test -d objs
-+	$(CC) $(SFLAGS) -mcpu=power8 $(ZINC) -DPIC -c -o objs/slide_hash_power8.o $(SRCDIR)contrib/power/slide_hash_power8.c
-+	-@mv objs/slide_hash_power8.o $@
-+
- infback.lo: $(SRCDIR)infback.c
- 	-@mkdir objs 2>/dev/null || test -d objs
- 	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/infback.o $(SRCDIR)infback.c
-diff --git a/configure b/configure
-index 2b90134..3f741ab 100755
---- a/configure
-+++ b/configure
-@@ -869,8 +869,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
- 
-   if tryboth $CC -c $CFLAGS -mcpu=power8 $test.c; then
-     POWER8="-DZ_POWER8"
--    PIC_OBJC="${PIC_OBJC} adler32_power8.lo"
--    OBJC="${OBJC} adler32_power8.o"
-+    PIC_OBJC="${PIC_OBJC} adler32_power8.lo slide_hash_power8.lo"
-+    OBJC="${OBJC} adler32_power8.o slide_hash_power8.o"
-     echo "Checking for -mcpu=power8 support... Yes." | tee -a configure.log
-   else
-     echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
-diff --git a/contrib/power/power.h b/contrib/power/power.h
-index 39f209f..4d36098 100644
---- a/contrib/power/power.h
-+++ b/contrib/power/power.h
-@@ -8,3 +8,5 @@
- uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
- 
- uInt _longest_match_power9(deflate_state *s, IPos cur_match);
-+
-+void _slide_hash_power8(deflate_state *s);
-diff --git a/contrib/power/slide_hash_power8.c b/contrib/power/slide_hash_power8.c
-new file mode 100644
-index 0000000..c5a0eb5
---- /dev/null
-+++ b/contrib/power/slide_hash_power8.c
-@@ -0,0 +1,63 @@
-+ /* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
-+  * For conditions of distribution and use, see copyright notice in zlib.h
-+  */
-+
-+#include <altivec.h>
-+#include "../../deflate.h"
-+
-+local inline void slide_hash_power8_loop OF((deflate_state *s,
-+      unsigned n_elems, Posf *table_end)) __attribute__((always_inline));
-+
-+local void slide_hash_power8_loop(
-+    deflate_state *s,
-+    unsigned n_elems,
-+    Posf *table_end)
-+{
-+    vector unsigned short vw, vm, *vp;
-+    unsigned chunks;
-+
-+    /* Each vector register (chunk) corresponds to 128 bits == 8 Posf,
-+     * so instead of processing each of the n_elems in the hash table
-+     * individually, we can do it in chunks of 8 with vector instructions.
-+     *
-+     * This function is only called from slide_hash_power8(), and both calls
-+     * pass n_elems as a power of 2 higher than 2^7, as defined by
-+     * deflateInit2_(), so n_elems will always be a multiple of 8. */
-+    chunks = n_elems >> 3;
-+    Assert(n_elems % 8 == 0, "Weird hash table size!");
-+
-+    /* This type casting is safe since s->w_size is always <= 64KB
-+     * as defined by deflateInit2_() and Posf == unsigned short */
-+    vw[0] = (Posf) s->w_size;
-+    vw = vec_splat(vw,0);
-+
-+    vp = (vector unsigned short *) table_end;
-+
-+    do {
-+        /* Processing 8 elements at a time */
-+        vp--;
-+        vm = *vp;
-+
-+        /* This is equivalent to: m >= w_size ? m - w_size : 0
-+         * Since we are using a saturated unsigned subtraction, any
-+         * values that are > w_size will be set to 0, while the others
-+         * will be subtracted by w_size. */
-+        *vp = vec_subs(vm,vw);
-+    } while (--chunks);
-+};
-+
-+void ZLIB_INTERNAL _slide_hash_power8(deflate_state *s)
-+{
-+    unsigned n;
-+    Posf *p;
-+
-+    n = s->hash_size;
-+    p = &s->head[n];
-+    slide_hash_power8_loop(s,n,p);
-+
-+#ifndef FASTEST
-+    n = s->w_size;
-+    p = &s->prev[n];
-+    slide_hash_power8_loop(s,n,p);
-+#endif
-+}
-diff --git a/contrib/power/slide_hash_resolver.c b/contrib/power/slide_hash_resolver.c
-new file mode 100644
-index 0000000..54fa1eb
---- /dev/null
-+++ b/contrib/power/slide_hash_resolver.c
-@@ -0,0 +1,15 @@
-+/* Copyright (C) 2019 Matheus Castanho <msc@linux.ibm.com>, IBM
-+ * For conditions of distribution and use, see copyright notice in zlib.h
-+ */
-+
-+#include "../gcc/zifunc.h"
-+#include "power.h"
-+
-+Z_IFUNC(slide_hash) {
-+#ifdef Z_POWER8
-+    if (__builtin_cpu_supports("arch_2_07"))
-+        return _slide_hash_power8;
-+#endif
-+
-+    return slide_hash_default;
-+}
-diff --git a/deflate.c b/deflate.c
-index 1e3aa18..4f8024d 100644
---- a/deflate.c
-+++ b/deflate.c
-@@ -193,6 +193,13 @@ local const config configuration_table[10] = {
-     s->head[s->hash_size-1] = NIL; \
-     zmemzero((Bytef *)s->head, (unsigned)(s->hash_size-1)*sizeof(*s->head));
- 
-+#ifdef Z_POWER_OPT
-+/* Rename function so resolver can use its symbol. The default version will be
-+ * returned by the resolver if the host has no support for an optimized version.
-+ */
-+#define slide_hash slide_hash_default
-+#endif /* Z_POWER_OPT */
-+
- /* ===========================================================================
-  * Slide the hash table when sliding the window down (could be avoided with 32
-  * bit values at the expense of memory usage). We slide even when level == 0 to
-@@ -224,6 +231,11 @@ local void slide_hash(s)
- #endif
- }
- 
-+#ifdef Z_POWER_OPT
-+#undef slide_hash
-+#include "contrib/power/slide_hash_resolver.c"
-+#endif /* Z_POWER_OPT */
-+
- /* ========================================================================= */
- int ZEXPORT deflateInit_(strm, level, version, stream_size)
-     z_streamp strm;
--- 
-2.34.1
-
-
-From 7660dbaa278d778a44d01e679bd51f683d5b23da Mon Sep 17 00:00:00 2001
-From: Daniel Black <daniel@linux.vnet.ibm.com>
-Date: Wed, 10 Jan 2018 10:50:39 +1100
-Subject: [PATCH 06/10] Add Power8+ optimized crc32
+From 2b843de4ffa241edc20877f3ec47e75c9ed13ec8 Mon Sep 17 00:00:00 2001
+From: Manjunath S Matti <mmatti@linux.ibm.com>
+Date: Wed, 16 Nov 2022 03:53:53 -0600
+Subject: [PATCH 2/3] Add Power8+ optimized crc32
 
 This commit adds an optimized version for the crc32 function based
 on crc32-vpmsum from https://github.com/antonblanchard/crc32-vpmsum/
 
-This is the C implementation created by Rogerio Alves <rogealve@br.ibm.com>
+This is the C implementation created by Rogerio Alves
+<rogealve@br.ibm.com>
 
 It makes use of vector instructions to speed up CRC32 algorithm.
+
+Author: Rogerio Alves <rcardoso@linux.ibm.com>
+Signed-off-by: Manjunath Matti <mmatti@linux.ibm.com>
 ---
- CMakeLists.txt                   |    5 +
- Makefile.in                      |   44 +-
- configure                        |    6 +-
+ CMakeLists.txt                   |    7 +-
+ Makefile.in                      |   43 +-
+ configure                        |    7 +-
  contrib/README.contrib           |    3 +-
  contrib/power/clang_workaround.h |   82 ++
  contrib/power/crc32_constants.h  | 1206 ++++++++++++++++++++++++++++++
  contrib/power/crc32_z_power8.c   |  679 +++++++++++++++++
  contrib/power/crc32_z_resolver.c |   15 +
  contrib/power/power.h            |    4 +
- crc32.c                          |   13 +
+ crc32.c                          |   12 +
  test/crc32_test.c                |  205 +++++
- 11 files changed, 2248 insertions(+), 14 deletions(-)
+ 12 files changed, 2252 insertions(+), 14 deletions(-)
  create mode 100644 contrib/power/clang_workaround.h
  create mode 100644 contrib/power/crc32_constants.h
  create mode 100644 contrib/power/crc32_z_power8.c
@@ -1732,18 +328,20 @@ It makes use of vector instructions to speed up CRC32 algorithm.
  create mode 100644 test/crc32_test.c
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 65e80b0..5671289 100644
+index e313f950e..4ba992b6e 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -186,6 +186,7 @@ if(CMAKE_COMPILER_IS_GNUCC)
+@@ -172,7 +172,8 @@ if(CMAKE_COMPILER_IS_GNUCC)
+ 
+             if(POWER8)
                  add_definitions(-DZ_POWER8)
-                 set(ZLIB_POWER8
-                     contrib/power/adler32_power8.c
-+                    contrib/power/crc32_z_power8.c
-                     contrib/power/slide_hash_power8.c)
+-                set(ZLIB_POWER8 )
++                set(ZLIB_POWER8
++                  contrib/power/crc32_z_power8.c)
  
                  set_source_files_properties(
-@@ -308,6 +309,10 @@ add_executable(example test/example.c)
+                     ${ZLIB_POWER8}
+@@ -269,6 +270,10 @@ add_executable(example test/example.c)
  target_link_libraries(example zlib)
  add_test(example example)
  
@@ -1755,54 +353,54 @@ index 65e80b0..5671289 100644
  target_link_libraries(minigzip zlib)
  
 diff --git a/Makefile.in b/Makefile.in
-index be0cc94..a9398fe 100644
+index 7d2713f4c..408954d90 100644
 --- a/Makefile.in
 +++ b/Makefile.in
-@@ -75,11 +75,11 @@ PIC_OBJS = $(PIC_OBJC) $(PIC_OBJA)
+@@ -71,11 +71,11 @@ PIC_OBJS = $(PIC_OBJC) $(PIC_OBJA)
  
  all: static shared
  
--static: adler32_test$(EXE) example$(EXE) minigzip$(EXE)
-+static: adler32_test$(EXE) crc32_test$(EXE) example$(EXE) minigzip$(EXE)
+-static: example$(EXE) minigzip$(EXE)
++static: crc32_test$(EXE) example$(EXE) minigzip$(EXE)
  
--shared: adler32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE)
-+shared: adler32_testsh$(EXE) crc32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE)
+-shared: examplesh$(EXE) minigzipsh$(EXE)
++shared: crc32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE)
  
--all64: adler32_test64$(EXE) example64$(EXE) minigzip64$(EXE)
-+all64: adler32_test64$(EXE) crc32_test64$(EXE) example64$(EXE) minigzip64$(EXE)
+-all64: example64$(EXE) minigzip64$(EXE)
++all64: crc32_test64$(EXE) example64$(EXE) minigzip64$(EXE)
  
  check: test
  
-@@ -87,7 +87,7 @@ test: all teststatic testshared
+@@ -83,7 +83,7 @@ test: all teststatic testshared
  
  teststatic: static
  	@TMPST=tmpst_$$; \
--	if echo hello world | ./minigzip | ./minigzip -d && ./example $$TMPST && ./adler32_test; then \
-+	if echo hello world | ./minigzip | ./minigzip -d && ./example $$TMPST && ./adler32_test && ./crc32_test; then \
+-	if echo hello world | ${QEMU_RUN} ./minigzip | ${QEMU_RUN} ./minigzip -d && ${QEMU_RUN} ./example $$TMPST ; then \
++	if echo hello world | ${QEMU_RUN} ./minigzip | ${QEMU_RUN} ./minigzip -d && ${QEMU_RUN} ./example $$TMPST && ${QEMU_RUN} ./crc32_test; then \
  	  echo '		*** zlib test OK ***'; \
  	else \
  	  echo '		*** zlib test FAILED ***'; false; \
-@@ -100,7 +100,7 @@ testshared: shared
+@@ -96,7 +96,7 @@ testshared: shared
  	DYLD_LIBRARY_PATH=`pwd`:$(DYLD_LIBRARY_PATH) ; export DYLD_LIBRARY_PATH; \
  	SHLIB_PATH=`pwd`:$(SHLIB_PATH) ; export SHLIB_PATH; \
  	TMPSH=tmpsh_$$; \
--	if echo hello world | ./minigzipsh | ./minigzipsh -d && ./examplesh $$TMPSH && ./adler32_testsh; then \
-+	if echo hello world | ./minigzipsh | ./minigzipsh -d && ./examplesh $$TMPSH && ./adler32_testsh && ./crc32_testsh; then \
+-	if echo hello world | ${QEMU_RUN} ./minigzipsh | ${QEMU_RUN} ./minigzipsh -d && ${QEMU_RUN} ./examplesh $$TMPSH; then \
++	if echo hello world | ${QEMU_RUN} ./minigzipsh | ${QEMU_RUN} ./minigzipsh -d && ${QEMU_RUN} ./examplesh $$TMPSH && ${QEMU_RUN} ./crc32_testsh; then \
  	  echo '		*** zlib shared test OK ***'; \
  	else \
  	  echo '		*** zlib shared test FAILED ***'; false; \
-@@ -109,7 +109,7 @@ testshared: shared
+@@ -105,7 +105,7 @@ testshared: shared
  
  test64: all64
  	@TMP64=tmp64_$$; \
--	if echo hello world | ./minigzip64 | ./minigzip64 -d && ./example64 $$TMP64 && ./adler32_test64; then \
-+	if echo hello world | ./minigzip64 | ./minigzip64 -d && ./example64 $$TMP64 && ./adler32_test64 && ./crc32_test64; then \
+-	if echo hello world | ${QEMU_RUN} ./minigzip64 | ${QEMU_RUN} ./minigzip64 -d && ${QEMU_RUN} ./example64 $$TMP64; then \
++	if echo hello world | ${QEMU_RUN} ./minigzip64 | ${QEMU_RUN} ./minigzip64 -d && ${QEMU_RUN} ./example64 $$TMP64 && ${QEMU_RUN} ./crc32_test64; then \
  	  echo '		*** zlib 64-bit test OK ***'; \
  	else \
  	  echo '		*** zlib 64-bit test FAILED ***'; false; \
-@@ -146,6 +146,9 @@ match.lo: match.S
- adler32_test.o: $(SRCDIR)test/adler32_test.c $(SRCDIR)zlib.h zconf.h
- 	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/adler32_test.c
+@@ -139,12 +139,18 @@ match.lo: match.S
+ 	mv _match.o match.lo
+ 	rm -f _match.s
  
 +crc32_test.o: $(SRCDIR)test/crc32_test.c $(SRCDIR)zlib.h zconf.h
 +	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/crc32_test.c
@@ -1810,9 +408,8 @@ index be0cc94..a9398fe 100644
  example.o: $(SRCDIR)test/example.c $(SRCDIR)zlib.h zconf.h
  	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/example.c
  
-@@ -155,6 +158,9 @@ minigzip.o: $(SRCDIR)test/minigzip.c $(SRCDIR)zlib.h zconf.h
- adler32_test64.o: $(SRCDIR)test/adler32_test.c $(SRCDIR)zlib.h zconf.h
- 	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/adler32_test.c
+ minigzip.o: $(SRCDIR)test/minigzip.c $(SRCDIR)zlib.h zconf.h
+ 	$(CC) $(CFLAGS) $(ZINCOUT) -c -o $@ $(SRCDIR)test/minigzip.c
  
 +crc32_test64.o: $(SRCDIR)test/crc32_test.c $(SRCDIR)zlib.h zconf.h
 +	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/crc32_test.c
@@ -1820,7 +417,7 @@ index be0cc94..a9398fe 100644
  example64.o: $(SRCDIR)test/example.c $(SRCDIR)zlib.h zconf.h
  	$(CC) $(CFLAGS) $(ZINCOUT) -D_FILE_OFFSET_BITS=64 -c -o $@ $(SRCDIR)test/example.c
  
-@@ -171,6 +177,9 @@ adler32_power8.o: $(SRCDIR)contrib/power/adler32_power8.c
+@@ -158,6 +164,9 @@ adler32.o: $(SRCDIR)adler32.c
  crc32.o: $(SRCDIR)crc32.c
  	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)crc32.c
  
@@ -1830,7 +427,7 @@ index be0cc94..a9398fe 100644
  deflate.o: $(SRCDIR)deflate.c
  	$(CC) $(CFLAGS) $(ZINC) -c -o $@ $(SRCDIR)deflate.c
  
-@@ -232,6 +241,11 @@ crc32.lo: $(SRCDIR)crc32.c
+@@ -208,6 +217,11 @@ crc32.lo: $(SRCDIR)crc32.c
  	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/crc32.o $(SRCDIR)crc32.c
  	-@mv objs/crc32.o $@
  
@@ -1842,9 +439,9 @@ index be0cc94..a9398fe 100644
  deflate.lo: $(SRCDIR)deflate.c
  	-@mkdir objs 2>/dev/null || test -d objs
  	$(CC) $(SFLAGS) $(ZINC) -DPIC -c -o objs/deflate.o $(SRCDIR)deflate.c
-@@ -318,6 +332,9 @@ placebo $(SHAREDLIBV): $(PIC_OBJS) libz.a
- adler32_test$(EXE): adler32_test.o $(STATICLIB)
- 	$(CC) $(CFLAGS) -o $@ adler32_test.o $(TEST_LDFLAGS)
+@@ -281,18 +295,27 @@ placebo $(SHAREDLIBV): $(PIC_OBJS) libz.a
+ 	ln -s $@ $(SHAREDLIBM)
+ 	-@rmdir objs
  
 +crc32_test$(EXE): crc32_test.o $(STATICLIB)
 +	$(CC) $(CFLAGS) -o $@ crc32_test.o $(TEST_LDFLAGS)
@@ -1852,19 +449,17 @@ index be0cc94..a9398fe 100644
  example$(EXE): example.o $(STATICLIB)
  	$(CC) $(CFLAGS) -o $@ example.o $(TEST_LDFLAGS)
  
-@@ -327,6 +344,9 @@ minigzip$(EXE): minigzip.o $(STATICLIB)
- adler32_testsh$(EXE): adler32_test.o $(SHAREDLIBV)
- 	$(CC) $(CFLAGS) -o $@ adler32_test.o -L. $(SHAREDLIBV)
+ minigzip$(EXE): minigzip.o $(STATICLIB)
+ 	$(CC) $(CFLAGS) -o $@ minigzip.o $(TEST_LDFLAGS)
  
 +crc32_testsh$(EXE): crc32_test.o $(SHAREDLIBV)
 +	$(CC) $(CFLAGS) -o $@ crc32_test.o -L. $(SHAREDLIBV)
 +
  examplesh$(EXE): example.o $(SHAREDLIBV)
- 	$(CC) $(CFLAGS) -o $@ example.o -L. $(SHAREDLIBV)
+ 	$(CC) $(CFLAGS) -o $@ example.o $(LDFLAGS) -L. $(SHAREDLIBV)
  
-@@ -336,6 +356,9 @@ minigzipsh$(EXE): minigzip.o $(SHAREDLIBV)
- adler32_test64$(EXE): adler32_test64.o $(STATICLIB)
- 	$(CC) $(CFLAGS) -o $@ adler32_test64.o $(TEST_LDFLAGS)
+ minigzipsh$(EXE): minigzip.o $(SHAREDLIBV)
+ 	$(CC) $(CFLAGS) -o $@ minigzip.o $(LDFLAGS) -L. $(SHAREDLIBV)
  
 +crc32_test64$(EXE): crc32_test64.o $(STATICLIB)
 +	$(CC) $(CFLAGS) -o $@ crc32_test64.o $(TEST_LDFLAGS)
@@ -1872,30 +467,29 @@ index be0cc94..a9398fe 100644
  example64$(EXE): example64.o $(STATICLIB)
  	$(CC) $(CFLAGS) -o $@ example64.o $(TEST_LDFLAGS)
  
-@@ -405,8 +428,9 @@ zconf: $(SRCDIR)zconf.h.in
+@@ -362,8 +385,8 @@ zconf: $(SRCDIR)zconf.h.in
  mostlyclean: clean
  clean:
  	rm -f *.o *.lo *~ \
--	   adler32_test$(EXE) example$(EXE) minigzip$(EXE) adler32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
--	   adler32_test64$(EXE) example64$(EXE) minigzip64$(EXE) \
-+	   adler32_test$(EXE) crc32_test$(EXE) example$(EXE) minigzip$(EXE) \
-+     adler32_testsh$(EXE) crc32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
-+	   adler32_test64$(EXE) crc32_test64$(EXE) example64$(EXE) minigzip64$(EXE) \
+-	   example$(EXE) minigzip$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
+-	   example64$(EXE) minigzip64$(EXE) \
++	   crc32_test$(EXE) example$(EXE) minigzip$(EXE) crc32_testsh$(EXE) examplesh$(EXE) minigzipsh$(EXE) \
++	   crc32_test64$(EXE) example64$(EXE) minigzip64$(EXE) \
  	   infcover \
  	   libz.* foo.gz so_locations \
  	   _match.s maketree contrib/infback9/*.o
-@@ -430,7 +454,7 @@ tags:
+@@ -385,7 +408,7 @@ tags:
  
- adler32.o adler32_test.o zutil.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
+ adler32.o zutil.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
  gzclose.o gzlib.o gzread.o gzwrite.o: $(SRCDIR)zlib.h zconf.h $(SRCDIR)gzguts.h
 -compress.o example.o minigzip.o uncompr.o: $(SRCDIR)zlib.h zconf.h
 +compress.o crc32_test.o example.o minigzip.o uncompr.o: $(SRCDIR)zlib.h zconf.h
  crc32.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)crc32.h
  deflate.o: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
  infback.o inflate.o: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h $(SRCDIR)inflate.h $(SRCDIR)inffast.h $(SRCDIR)inffixed.h
-@@ -440,7 +464,7 @@ trees.o: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)tr
+@@ -395,7 +418,7 @@ trees.o: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)tr
  
- adler32.lo adler32_test.lo zutil.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
+ adler32.lo zutil.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
  gzclose.lo gzlib.lo gzread.lo gzwrite.lo: $(SRCDIR)zlib.h zconf.h $(SRCDIR)gzguts.h
 -compress.lo example.lo minigzip.lo uncompr.lo: $(SRCDIR)zlib.h zconf.h
 +compress.lo crc32_test.lo example.lo minigzip.lo uncompr.lo: $(SRCDIR)zlib.h zconf.h
@@ -1903,27 +497,35 @@ index be0cc94..a9398fe 100644
  deflate.lo: $(SRCDIR)deflate.h $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h
  infback.lo inflate.lo: $(SRCDIR)zutil.h $(SRCDIR)zlib.h zconf.h $(SRCDIR)inftrees.h $(SRCDIR)inflate.h $(SRCDIR)inffast.h $(SRCDIR)inffixed.h
 diff --git a/configure b/configure
-index 3f741ab..d2729bc 100755
+index 9ee7008c3..45d51e596 100755
 --- a/configure
 +++ b/configure
-@@ -869,9 +869,9 @@ if tryboth $CC -c $CFLAGS $test.c; then
+@@ -858,6 +858,9 @@ cat > $test.c <<EOF
+ #ifndef _ARCH_PPC
+   #error "Target is not Power"
+ #endif
++#if !(defined(__PPC64__) || defined(__powerpc64__))
++  #error "Target is not 64 bits"
++#endif
+ #ifndef HAVE_IFUNC
+   #error "Target doesn't support ifunc"
+ #endif
+@@ -871,8 +874,8 @@ if tryboth $CC -c $CFLAGS $test.c; then
  
    if tryboth $CC -c $CFLAGS -mcpu=power8 $test.c; then
      POWER8="-DZ_POWER8"
--    PIC_OBJC="${PIC_OBJC} adler32_power8.lo slide_hash_power8.lo"
--    OBJC="${OBJC} adler32_power8.o slide_hash_power8.o"
--    echo "Checking for -mcpu=power8 support... Yes." | tee -a configure.log
-+    PIC_OBJC="${PIC_OBJC} adler32_power8.lo crc32_z_power8.lo slide_hash_power8.lo"
-+    OBJC="${OBJC} adler32_power8.o crc32_z_power8.o slide_hash_power8.o"
-+    echo "Checking for -mcpu=power8 support... Yes." | tee -a configurelog
+-    PIC_OBJC="${PIC_OBJC}"
+-    OBJC="${OBJC}"
++    PIC_OBJC="${PIC_OBJC} crc32_z_power8.lo"
++    OBJC="${OBJC} crc32_z_power8.o"
+     echo "Checking for -mcpu=power8 support... Yes." | tee -a configure.log
    else
      echo "Checking for -mcpu=power8 support... No." | tee -a configure.log
-   fi
 diff --git a/contrib/README.contrib b/contrib/README.contrib
-index 0dda15b..2ea5a0d 100644
+index c57b52012..90170df69 100644
 --- a/contrib/README.contrib
 +++ b/contrib/README.contrib
-@@ -67,7 +67,8 @@ minizip/    by Gilles Vollant <info@winimage.com>
+@@ -46,7 +46,8 @@ minizip/    by Gilles Vollant <info@winimage.com>
  pascal/     by Bob Dellaca <bobdl@xtra.co.nz> et al.
          Support for Pascal
  
@@ -1935,7 +537,7 @@ index 0dda15b..2ea5a0d 100644
  
 diff --git a/contrib/power/clang_workaround.h b/contrib/power/clang_workaround.h
 new file mode 100644
-index 0000000..b5e7dae
+index 000000000..b5e7dae01
 --- /dev/null
 +++ b/contrib/power/clang_workaround.h
 @@ -0,0 +1,82 @@
@@ -2023,7 +625,7 @@ index 0000000..b5e7dae
 +#endif
 diff --git a/contrib/power/crc32_constants.h b/contrib/power/crc32_constants.h
 new file mode 100644
-index 0000000..58088dc
+index 000000000..58088dcc0
 --- /dev/null
 +++ b/contrib/power/crc32_constants.h
 @@ -0,0 +1,1206 @@
@@ -3235,7 +1837,7 @@ index 0000000..58088dc
 +#endif /* __ASSEMBLER__ */
 diff --git a/contrib/power/crc32_z_power8.c b/contrib/power/crc32_z_power8.c
 new file mode 100644
-index 0000000..7858cfe
+index 000000000..7858cfe0e
 --- /dev/null
 +++ b/contrib/power/crc32_z_power8.c
 @@ -0,0 +1,679 @@
@@ -3920,7 +2522,7 @@ index 0000000..7858cfe
 +}
 diff --git a/contrib/power/crc32_z_resolver.c b/contrib/power/crc32_z_resolver.c
 new file mode 100644
-index 0000000..f4e9aa4
+index 000000000..f4e9aa491
 --- /dev/null
 +++ b/contrib/power/crc32_z_resolver.c
 @@ -0,0 +1,15 @@
@@ -3940,32 +2542,25 @@ index 0000000..f4e9aa4
 +    return crc32_z_default;
 +}
 diff --git a/contrib/power/power.h b/contrib/power/power.h
-index 4d36098..a8a6f0a 100644
+index b42c7d6c6..79123aa90 100644
 --- a/contrib/power/power.h
 +++ b/contrib/power/power.h
-@@ -4,9 +4,13 @@
+@@ -2,3 +2,7 @@
+  *               2019 Rogerio Alves    <rogerio.alves@ibm.com>, IBM
+  * For conditions of distribution and use, see copyright notice in zlib.h
   */
- #include "../../deflate.h"
- #include "../../zutil.h"
-+#include "zconf.h"
- 
- uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
- 
++
++#include "../../zconf.h"
++
 +unsigned long _crc32_z_power8(unsigned long, const Bytef *, z_size_t);
-+
- uInt _longest_match_power9(deflate_state *s, IPos cur_match);
- 
- void _slide_hash_power8(deflate_state *s);
-+
 diff --git a/crc32.c b/crc32.c
-index 9580440..2be6ad5 100644
+index f8357b083..4e5830b86 100644
 --- a/crc32.c
 +++ b/crc32.c
-@@ -199,6 +199,14 @@ const z_crc_t FAR * ZEXPORT get_crc_table()
- #define DO8 DO1; DO1; DO1; DO1; DO1; DO1; DO1; DO1
+@@ -745,6 +745,13 @@ local z_word_t crc_word_big(data)
+ #endif
  
  /* ========================================================================= */
-+
 +#ifdef Z_POWER_OPT
 +/* Rename function so resolver can use its symbol. The default version will be
 + * returned by the resolver if the host has no support for an optimized version.
@@ -3976,8 +2571,8 @@ index 9580440..2be6ad5 100644
  unsigned long ZEXPORT crc32_z(crc, buf, len)
      unsigned long crc;
      const unsigned char FAR *buf;
-@@ -233,6 +241,11 @@ unsigned long ZEXPORT crc32_z(crc, buf, len)
-     return crc ^ 0xffffffffUL;
+@@ -1066,6 +1073,11 @@ unsigned long ZEXPORT crc32_z(crc, buf, len)
+     return crc ^ 0xffffffff;
  }
  
 +#ifdef Z_POWER_OPT
@@ -3985,12 +2580,12 @@ index 9580440..2be6ad5 100644
 +#include "contrib/power/crc32_z_resolver.c"
 +#endif /* Z_POWER_OPT */
 +
+ #endif
+ 
  /* ========================================================================= */
- unsigned long ZEXPORT crc32(crc, buf, len)
-     unsigned long crc;
 diff --git a/test/crc32_test.c b/test/crc32_test.c
 new file mode 100644
-index 0000000..3155553
+index 000000000..3155553e6
 --- /dev/null
 +++ b/test/crc32_test.c
 @@ -0,0 +1,205 @@
@@ -4199,14 +2794,11 @@ index 0000000..3155553
 +    }
 +    return 0;
 +}
--- 
-2.34.1
 
-
-From 40ce2d09198b9ded33634a6939ed8cc3d2bec610 Mon Sep 17 00:00:00 2001
+From e8c61767464de8d063366117f508359e5ca40a50 Mon Sep 17 00:00:00 2001
 From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
 Date: Wed, 25 Mar 2020 12:16:41 -0300
-Subject: [PATCH 07/10] Fix clang's behavior on versions >= 7
+Subject: [PATCH 3/3] Fix clang's behavior on versions >= 7
 
 Clang 7 changed the behavior of vec_xxpermdi in order to match GCC's
 behavior.  After this change, code that used to work on Clang 6 stopped
@@ -4222,7 +2814,7 @@ Signed-off-by: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
  1 file changed, 10 insertions(+), 5 deletions(-)
 
 diff --git a/contrib/power/clang_workaround.h b/contrib/power/clang_workaround.h
-index b5e7dae..915f7e5 100644
+index b5e7dae01..915f7e528 100644
 --- a/contrib/power/clang_workaround.h
 +++ b/contrib/power/clang_workaround.h
 @@ -39,7 +39,12 @@ __vector unsigned long long  __builtin_pack_vector (unsigned long __a,
@@ -4263,105 +2855,3 @@ index b5e7dae..915f7e5 100644
  	#endif
  }
  #endif /* vec_xxpermdi */
--- 
-2.34.1
-
-
-From 18799895c3ef7a8f146b689106d549869d2688f6 Mon Sep 17 00:00:00 2001
-From: Matheus Castanho <msc@linux.ibm.com>
-Date: Wed, 29 Apr 2020 12:09:19 -0300
-Subject: [PATCH 08/10] Fix importing of zconf.h
-
----
- contrib/power/power.h | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/contrib/power/power.h b/contrib/power/power.h
-index a8a6f0a..5c44eb2 100644
---- a/contrib/power/power.h
-+++ b/contrib/power/power.h
-@@ -4,7 +4,7 @@
-  */
- #include "../../deflate.h"
- #include "../../zutil.h"
--#include "zconf.h"
-+#include "../../zconf.h"
- 
- uLong _adler32_power8(uLong adler, const Bytef* buf, uInt len);
- 
--- 
-2.34.1
-
-
-From 691785fcbe654b092b0db10505743923fd1fec77 Mon Sep 17 00:00:00 2001
-From: Matheus Castanho <msc@linux.ibm.com>
-Date: Fri, 23 Oct 2020 15:10:38 -0300
-Subject: [PATCH 09/10] Limit optimizations to 64-bit targets
-
-Some optimizations don't work on 32-bit targets, so we should limit them
-to 64 bits only.
----
- configure | 3 +++
- 1 file changed, 3 insertions(+)
-
-diff --git a/configure b/configure
-index d2729bc..e534b51 100755
---- a/configure
-+++ b/configure
-@@ -856,6 +856,9 @@ cat > $test.c <<EOF
- #ifndef _ARCH_PPC
-   #error "Target is not Power"
- #endif
-+#if !(defined(__PPC64__) || defined(__powerpc64__))
-+  #error "Target is not 64 bits"
-+#endif
- #ifndef HAVE_IFUNC
-   #error "Target doesn't support ifunc"
- #endif
--- 
-2.34.1
-
-
-From 80040e061d99166d969e89aa98042c65197dfa8a Mon Sep 17 00:00:00 2001
-From: Matheus Castanho <msc@linux.ibm.com>
-Date: Wed, 23 Feb 2022 17:11:04 -0300
-Subject: [PATCH 10/10] Use inline asm to generate vctzlsbb
-
-There was an issue in the way the vec_cnttz_lsbb builtin was being
-implemented that got fixed on GCC 12, but now we have to use different
-builtins depending on the compiler version. To avoid that, let's use
-inline asm to generate the exact instruction we need.
----
- contrib/power/longest_match_power9.c | 9 ++++++++-
- 1 file changed, 8 insertions(+), 1 deletion(-)
-
-diff --git a/contrib/power/longest_match_power9.c b/contrib/power/longest_match_power9.c
-index cf586ce..87c008f 100644
---- a/contrib/power/longest_match_power9.c
-+++ b/contrib/power/longest_match_power9.c
-@@ -11,6 +11,7 @@ local inline int vec_match OF((Bytef* scan, Bytef* match))
- local inline int vec_match(Bytef* scan, Bytef* match)
- {
-     vector unsigned char vscan, vmatch, vc;
-+    int len;
- 
-     vscan  = *((vector unsigned char *) scan);
-     vmatch = *((vector unsigned char *) match);
-@@ -25,7 +26,13 @@ local inline int vec_match(Bytef* scan, Bytef* match)
-      * on vc (since we used cmpne), counting the number of consecutive
-      * bytes where LSB == 0 is the same as counting the length of the match.
-      */
--    return vec_cnttz_lsbb(vc);
-+    #ifdef __LITTLE_ENDIAN__
-+    asm volatile("vctzlsbb %0, %1\n\t" : "=r" (len) : "v" (vc));
-+    #else
-+    asm volatile("vclzlsbb %0, %1\n\t" : "=r" (len) : "v" (vc));
-+    #endif
-+
-+   return len;
- }
- 
- uInt ZLIB_INTERNAL _longest_match_power9(deflate_state *s, IPos cur_match)
--- 
-2.34.1
-
