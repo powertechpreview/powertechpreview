@@ -1,0 +1,43 @@
+From cf9ad5d35f575b478171117dfd56a5832150c16a Mon Sep 17 00:00:00 2001
+From: "Paul A. Clarke" <pc@us.ibm.com>
+Date: Thu, 11 Feb 2021 12:26:31 -0600
+Subject: [PATCH] Revert "Default to DWARF5"
+
+Defaulting to DWARF5 in GCC 11 causes issues with tools that are
+not ready for it.  In particular, older versions of `perf` may
+hang in some scenarios:
+```
+$ perf probe -v -x /path/to/AT/at-next-15.0-0-alpha/bin/ld test_perf_debug=main argc
+probe-definition(0): test_perf_debug=main argc
+symbol:main file:(null) line:0 offset:0 return:0 lazy:(null)
+parsing arg: argc into argc
+1 arguments
+Open Debuginfo file: /path/to/AT/at-next-15.0-0-alpha/bin/ld
+Try to find probe point from debuginfo.
+```
+
+2021-02-11  Paul A. Clarke  <pc@us.ibm.com>
+
+gcc/ChangeLog:
+
+	* common.opt (gdwarf-): Init(4).
+---
+ gcc/common.opt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gcc/common.opt b/gcc/common.opt
+index c75dd36843e..7dbfcb589ed 100644
+--- a/gcc/common.opt
++++ b/gcc/common.opt
+@@ -3171,7 +3171,7 @@ Common Driver JoinedOrMissing Negative(gdwarf-)
+ Generate debug information in default version of DWARF format.
+ 
+ gdwarf-
+-Common Driver Joined UInteger Var(dwarf_version) Init(DWARF_VERSION_DEFAULT)
++Common Driver Joined UInteger Var(dwarf_version) Init(4)
+ Generate debug information in DWARF v2 (or later) format.
+ 
+ gdwarf32
+-- 
+2.27.0
+
