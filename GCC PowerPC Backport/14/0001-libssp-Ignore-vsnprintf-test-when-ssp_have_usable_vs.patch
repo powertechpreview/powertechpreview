@@ -1,0 +1,89 @@
+From c39e928e0071a87cca0387bf4ed0a0f248c2018d Mon Sep 17 00:00:00 2001
+From: Matheus Castanho <msc@linux.ibm.com>
+Date: Wed, 16 Dec 2020 11:15:39 -0300
+Subject: [PATCH] libssp: Ignore vsnprintf test when ssp_have_usable_vsnprintf
+ is already set
+
+The vsnprintf test needs to execute a program that may generate illegal
+instructions when -mcpu is set to a higher value than the one current
+processor can run.
+This patch avoids running the test by reusing the value of
+ssp_have_usable_vsnprintf passed to configure.
+---
+ libssp/configure    | 13 ++++++++++---
+ libssp/configure.ac |  3 ++-
+ 2 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/libssp/configure b/libssp/configure
+index 4873b43e111..e664dd9b641 100755
+--- a/libssp/configure
++++ b/libssp/configure
+@@ -4838,6 +4838,10 @@ fi
+ 
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether vsnprintf is usable" >&5
+ $as_echo_n "checking whether vsnprintf is usable... " >&6; }
++if ${ssp_have_usable_vsnprintf+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++
+ if test "$cross_compiling" = yes; then :
+   ssp_have_usable_vsnprintf=undef
+ else
+@@ -4876,6 +4880,10 @@ rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
+   conftest.$ac_objext conftest.beam conftest.$ac_ext
+ fi
+ 
++
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ssp_have_usable_vsnprintf" >&5
++$as_echo "$ssp_have_usable_vsnprintf" >&6; }
+ if test "x$ssp_have_usable_vsnprintf" = xdefine; then
+   { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+ $as_echo "yes" >&6; }
+@@ -11002,7 +11010,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 11057 "configure"
++#line 11065 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -11108,7 +11116,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 11163 "configure"
++#line 11171 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -13839,4 +13847,3 @@ if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
+   { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: unrecognized options: $ac_unrecognized_opts" >&5
+ $as_echo "$as_me: WARNING: unrecognized options: $ac_unrecognized_opts" >&2;}
+ fi
+-
+diff --git a/libssp/configure.ac b/libssp/configure.ac
+index f30f81c54f6..deccfbdb02c 100644
+--- a/libssp/configure.ac
++++ b/libssp/configure.ac
+@@ -129,7 +129,7 @@ else
+   AC_CHECK_FUNCS(memmove mempcpy strncpy strncat)
+ fi
+ 
+-AC_MSG_CHECKING([whether vsnprintf is usable])
++AC_CACHE_CHECK([whether vsnprintf is usable],[ssp_have_usable_vsnprintf],[
+ AC_RUN_IFELSE([AC_LANG_PROGRAM([
+ #include <stdarg.h>
+ #include <string.h>
+@@ -150,6 +150,7 @@ int foo (char *buf, size_t n, const char *fmt, ...)
+ [ssp_have_usable_vsnprintf=define],
+ [ssp_have_usable_vsnprintf=undef],
+ [ssp_have_usable_vsnprintf=undef])
++])
+ if test "x$ssp_have_usable_vsnprintf" = xdefine; then
+   AC_MSG_RESULT(yes)
+   AC_DEFINE([HAVE_USABLE_VSNPRINTF],[1],[vsnprintf is present and works])
+-- 
+2.26.2
+
