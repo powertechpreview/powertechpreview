@@ -2568,9 +2568,9 @@ index f8357b083..4e5830b86 100644
 +#define crc32_z crc32_z_default
 +#endif /* Z_POWER_OPT */
 +
- unsigned long ZEXPORT crc32_z(crc, buf, len)
-     unsigned long crc;
-     const unsigned char FAR *buf;
+ unsigned long ZEXPORT crc32_z(unsigned long crc, const unsigned char FAR *buf,
+                               z_size_t len) {
+     /* Return initial CRC, if requested. */
 @@ -1066,6 +1073,11 @@ unsigned long ZEXPORT crc32_z(crc, buf, len)
      return crc ^ 0xffffffff;
  }
