@@ -1,0 +1,21 @@
+diff -u a/configure b/configure
+--- a/configure
++++ b/configure
+@@ -1634,6 +1634,17 @@
+     cross_compiling=yes
+   fi
+ fi
++# Check current cpu flavor against -mcpu value.
++cross_cpu_compiling=no
++if test -n "$OPT"; then
++  mcpu=$(echo $OPT | tr "-" "\n" | grep "^mcpu=" | cut -d= -f2)
++  if test -n "$mcpu"; then
++    if test $(lscpu | grep -scwi "$mcpu") -eq 0; then
++      cross_compiling=yes
++      cross_cpu_compiling=yes
++    fi
++  fi
++fi
+ 
+ ac_tool_prefix=
+ test -n "$host_alias" && ac_tool_prefix=$host_alias-
