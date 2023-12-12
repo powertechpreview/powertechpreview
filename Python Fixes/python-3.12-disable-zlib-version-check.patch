@@ -1,23 +1,21 @@
 diff --git a/Lib/test/test_zlib.py b/Lib/test/test_zlib.py
-index 42cceafdc9..3b093b313c 100644
+index 2be3eb2afe..91afcaf0b2 100644
 --- a/Lib/test/test_zlib.py
 +++ b/Lib/test/test_zlib.py
-@@ -437,10 +437,15 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
+@@ -492,9 +492,14 @@ def test_flushes(self):
          sync_opt = ['Z_NO_FLUSH', 'Z_SYNC_FLUSH', 'Z_FULL_FLUSH',
                      'Z_PARTIAL_FLUSH']
  
--        ver = tuple(int(v) for v in zlib.ZLIB_RUNTIME_VERSION.split('.'))
 -        # Z_BLOCK has a known failure prior to 1.2.5.3
--        if ver >= (1, 2, 5, 3):
+-        if ZLIB_RUNTIME_VERSION_TUPLE >= (1, 2, 5, 3):
 -            sync_opt.append('Z_BLOCK')
 +# Reading zlib version with the following code fails on AT Next, because
 +# zlib version is 1.2.11.1-motley (notice the '-motley' suffix, which is
 +# not an integer, as expected by the iterator).
 +# It is safe to disable this check on AT Next, because the version of
 +# zlib on AT Next (1.2.11.1-motley) is known to be greater than 1.2.5.3.
-+#        ver = tuple(int(v) for v in zlib.ZLIB_RUNTIME_VERSION.split('.'))
 +#        # Z_BLOCK has a known failure prior to 1.2.5.3
-+#        if ver >= (1, 2, 5, 3):
++#        if ZLIB_RUNTIME_VERSION_TUPLE >= (1, 2, 5, 3):
 +        sync_opt.append('Z_BLOCK')
  
          sync_opt = [getattr(zlib, opt) for opt in sync_opt
