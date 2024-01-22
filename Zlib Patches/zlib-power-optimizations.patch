@@ -342,15 +342,15 @@ index e313f950e..4ba992b6e 100644
                  set_source_files_properties(
                      ${ZLIB_POWER8}
 @@ -269,6 +270,10 @@ add_executable(example test/example.c)
- target_link_libraries(example zlib)
- add_test(example example)
+     target_link_libraries(example zlib)
+     add_test(example example)
  
-+add_executable(crc32_test test/crc32_test.c)
-+target_link_libraries(crc32_test zlib)
-+add_test(crc32_test crc32_test)
++    add_executable(crc32_test test/crc32_test.c)
++    target_link_libraries(crc32_test zlib)
++    add_test(crc32_test crc32_test)
 +
- add_executable(minigzip test/minigzip.c)
- target_link_libraries(minigzip zlib)
+     add_executable(minigzip test/minigzip.c)
+     target_link_libraries(minigzip zlib)
  
 diff --git a/Makefile.in b/Makefile.in
 index 7d2713f4c..408954d90 100644
