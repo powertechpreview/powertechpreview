@@ -444,16 +444,16 @@ index 7d2713f4c..408954d90 100644
  	-@rmdir objs
  
 +crc32_test$(EXE): crc32_test.o $(STATICLIB)
-+	$(CC) $(CFLAGS) -o $@ crc32_test.o $(TEST_LDFLAGS)
++	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ crc32_test.o $(TEST_LIBS)
 +
  example$(EXE): example.o $(STATICLIB)
- 	$(CC) $(CFLAGS) -o $@ example.o $(TEST_LDFLAGS)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ example.o $(TEST_LIBS)
  
  minigzip$(EXE): minigzip.o $(STATICLIB)
- 	$(CC) $(CFLAGS) -o $@ minigzip.o $(TEST_LDFLAGS)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ minigzip.o $(TEST_LIBS)
  
 +crc32_testsh$(EXE): crc32_test.o $(SHAREDLIBV)
-+	$(CC) $(CFLAGS) -o $@ crc32_test.o -L. $(SHAREDLIBV)
++	$(CC) $(CFLAGS) -o $@ crc32_test.o $(LDFLAGS) -L. $(SHAREDLIBV)
 +
  examplesh$(EXE): example.o $(SHAREDLIBV)
  	$(CC) $(CFLAGS) -o $@ example.o $(LDFLAGS) -L. $(SHAREDLIBV)
@@ -462,10 +462,10 @@ index 7d2713f4c..408954d90 100644
  	$(CC) $(CFLAGS) -o $@ minigzip.o $(LDFLAGS) -L. $(SHAREDLIBV)
  
 +crc32_test64$(EXE): crc32_test64.o $(STATICLIB)
-+	$(CC) $(CFLAGS) -o $@ crc32_test64.o $(TEST_LDFLAGS)
++	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ crc32_test64.o $(TEST_LIBS)
 +
  example64$(EXE): example64.o $(STATICLIB)
- 	$(CC) $(CFLAGS) -o $@ example64.o $(TEST_LDFLAGS)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ example64.o $(TEST_LIBS)
  
 @@ -362,8 +385,8 @@ zconf: $(SRCDIR)zconf.h.in
  mostlyclean: clean
