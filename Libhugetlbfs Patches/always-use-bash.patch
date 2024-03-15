@@ -10,18 +10,18 @@ we always use bash instead.
  Makefile | 4 ++++
  1 file changed, 4 insertions(+)
 
-diff --git a/Makefile b/Makefile
+diff --git a/Makefile.in b/Makefile.in
 index 38aef51..e786cbf 100644
---- a/Makefile
-+++ b/Makefile
+--- a/Makefile.in
++++ b/Makefile.in
 @@ -1,3 +1,7 @@
 +# /bin/sh is a symlink to dash on Debian and Ubuntu, which causes problems with
 +# the += operator. Let's guarantee we always use bash instead.
 +SHELL = /bin/bash
 +
- PREFIX ?= /usr/local
- EXEDIR ?= /bin
+ AUTORECONF=autoreconf
  
+ CFLAGS=@CFLAGS@
 -- 
 2.31.1
 
