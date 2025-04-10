@@ -1,0 +1,166 @@
+diff --git a/Makefile.pre.in b/Makefile.pre.in
+index a276d535c7f..a7403fe2ae2 100644
+--- a/Makefile.pre.in
++++ b/Makefile.pre.in
+@@ -202,6 +202,7 @@ ENSUREPIP=      @ENSUREPIP@
+ OPENSSL_INCLUDES=@OPENSSL_INCLUDES@
+ OPENSSL_LIBS=@OPENSSL_LIBS@
+ OPENSSL_LDFLAGS=@OPENSSL_LDFLAGS@
++OPENSSL_RPATH=@OPENSSL_RPATH@
+ 
+ # Default zoneinfo.TZPATH. Added here to expose it in sysconfig.get_config_var
+ TZPATH=@TZPATH@
+diff --git a/configure b/configure
+index b7be60eaa37..eb1cc3c8c38 100755
+--- a/configure
++++ b/configure
+@@ -626,6 +626,7 @@ ac_subst_vars='LTLIBOBJS
+ OPENSSL_LDFLAGS
+ OPENSSL_LIBS
+ OPENSSL_INCLUDES
++OPENSSL_RPATH
+ ENSUREPIP
+ SRCDIRS
+ THREADHEADERS
+@@ -851,6 +852,7 @@ with_platlibdir
+ with_computed_gotos
+ with_ensurepip
+ with_openssl
++with_openssl_rpath
+ with_ssl_default_suites
+ with_builtin_hashlib_hashes
+ '
+@@ -1592,6 +1594,11 @@ Optional Packages:
+                           "install" or "upgrade" using bundled pip (default is
+                           upgrade)
+   --with-openssl=DIR      root of the OpenSSL directory
++  --with-openssl-rpath=[DIR|auto|no]
++                          Set runtime library directory (rpath) for OpenSSL
++                          libraries, no (default): don't set rpath, auto:
++                          auto-detect rpath from --with-openssl and
++                          pkg-config, DIR: set an explicit rpath
+   --with-ssl-default-suites=[python|openssl|STRING]
+                           override default cipher suites string, python: use
+                           Python's preferred selection (default), openssl:
+@@ -17639,6 +17646,36 @@ $as_echo "#define HAVE_X509_VERIFY_PARAM_SET1_HOST 1" >>confdefs.h
+     LIBS="$save_LIBS"
+ fi
+ 
++# rpath to libssl and libcrypto
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for --with-openssl-rpath" >&5
++printf %s "checking for --with-openssl-rpath... " >&6; }
++
++# Check whether --with-openssl-rpath was given.
++if test "${with_openssl_rpath+set}" = set; then :
++  withval=$with_openssl_rpath;
++else
++  with_openssl_rpath=no
++
++fi
++
++case $with_openssl_rpath in #(
++  auto|yes) :
++    OPENSSL_RPATH=auto ;; #(
++  no) :
++    OPENSSL_RPATH= ;; #(
++  *) :
++    if test -d "$with_openssl_rpath"; then :
++  OPENSSL_RPATH="$with_openssl_rpath"
++else
++  as_fn_error $? "--with-openssl-rpath \"$with_openssl_rpath\" is not a directory" "$LINENO" 5
++fi
++
++ ;;
++esac
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $OPENSSL_RPATH" >&5
++printf "%s\n" "$OPENSSL_RPATH" >&6; }
++
++
+ # ssl module default cipher suite string
+ 
+ 
+diff --git a/configure.ac b/configure.ac
+index aa515da4655..71eb4c0553a 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -5792,6 +5792,30 @@ if test "$have_openssl" = yes; then
+     LIBS="$save_LIBS"
+ fi
+ 
++# rpath to libssl and libcrypto
++AC_MSG_CHECKING(for --with-openssl-rpath)
++AC_ARG_WITH(openssl-rpath,
++    AS_HELP_STRING([--with-openssl-rpath=@<:@DIR|auto|no@:>@],
++                   [Set runtime library directory (rpath) for OpenSSL libraries,
++                    no (default): don't set rpath,
++                    auto: auto-detect rpath from --with-openssl and pkg-config,
++                    DIR: set an explicit rpath
++                   ]),
++    [],
++    [with_openssl_rpath=no]
++)
++AS_CASE($with_openssl_rpath,
++    [auto|yes],[OPENSSL_RPATH=auto],
++    [no],[OPENSSL_RPATH=],
++    [AS_IF(
++        [test -d "$with_openssl_rpath"],
++        [OPENSSL_RPATH="$with_openssl_rpath"],
++        AC_MSG_ERROR([--with-openssl-rpath "$with_openssl_rpath" is not a directory]))
++    ]
++)
++AC_MSG_RESULT($OPENSSL_RPATH)
++AC_SUBST([OPENSSL_RPATH])
++
+ # ssl module default cipher suite string
+ AH_TEMPLATE(PY_SSL_DEFAULT_CIPHERS,
+   [Default cipher suites list for ssl module.
+diff --git a/setup.py b/setup.py
+index 0bec170d3f2..fb6eb3bf21d 100644
+--- a/setup.py
++++ b/setup.py
+@@ -543,6 +543,8 @@ class PyBuildExt(build_ext):
+                   "libssl with X509_VERIFY_PARAM_set1_host().")
+             print("LibreSSL 2.6.4 and earlier do not provide the necessary "
+                   "APIs, https://github.com/libressl-portable/portable/issues/381")
++            if sysconfig.get_config_var("OPENSSL_LDFLAGS"):
++                print("Custom linker flags may require --with-openssl-rpath=auto")
+             print()
+ 
+         if os.environ.get("PYTHONSTRICTEXTENSIONBUILD") and (self.failed or self.failed_on_import):
+@@ -2333,6 +2335,7 @@ class PyBuildExt(build_ext):
+         openssl_includes = split_var('OPENSSL_INCLUDES', '-I')
+         openssl_libdirs = split_var('OPENSSL_LDFLAGS', '-L')
+         openssl_libs = split_var('OPENSSL_LIBS', '-l')
++        openssl_rpath = config_vars.get('OPENSSL_RPATH')
+         if not openssl_libs:
+             # libssl and libcrypto not found
+             self.missing.extend(['_ssl', '_hashlib'])
+@@ -2354,12 +2357,20 @@ class PyBuildExt(build_ext):
+         if krb5_h:
+             ssl_incs.extend(krb5_h)
+ 
++        if openssl_rpath == 'auto':
++            runtime_library_dirs = openssl_libdirs[:]
++        elif not openssl_rpath:
++            runtime_library_dirs = []
++        else:
++            runtime_library_dirs = [openssl_rpath]
++
+         if config_vars.get("HAVE_X509_VERIFY_PARAM_SET1_HOST"):
+             self.add(Extension(
+                 '_ssl', ['_ssl.c'],
+                 include_dirs=openssl_includes,
+                 library_dirs=openssl_libdirs,
+                 libraries=openssl_libs,
++                runtime_library_dirs=runtime_library_dirs,
+                 depends=[
+                     'socketmodule.h',
+                     '_ssl/debughelpers.c',
+@@ -2374,6 +2385,7 @@ class PyBuildExt(build_ext):
+                            depends=['hashlib.h'],
+                            include_dirs=openssl_includes,
+                            library_dirs=openssl_libdirs,
++                           runtime_library_dirs=runtime_library_dirs,
+                            libraries=openssl_libs))
+ 
+     def detect_hash_builtins(self):
