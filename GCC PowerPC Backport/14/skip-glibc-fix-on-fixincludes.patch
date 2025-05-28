@@ -1,0 +1,92 @@
+diff -Naur a/fixincludes/fixincl.x b/fixincludes/fixincl.x
+--- a/fixincludes/fixincl.x
++++ b/fixincludes/fixincl.x
+@@ -7493,42 +7493,6 @@
+ 
+ /* * * * * * * * * * * * * * * * * * * * * * * * * *
+  *
+- *  Description of Pthread_Incomplete_Struct_Argument fix
+- */
+-tSCC zPthread_Incomplete_Struct_ArgumentName[] =
+-     "pthread_incomplete_struct_argument";
+-
+-/*
+- *  File name selection pattern
+- */
+-tSCC zPthread_Incomplete_Struct_ArgumentList[] =
+-  "pthread.h\0";
+-/*
+- *  Machine/OS name selection pattern
+- */
+-#define apzPthread_Incomplete_Struct_ArgumentMachs (const char**)NULL
+-
+-/*
+- *  content selection pattern - do fix if pattern found
+- */
+-tSCC zPthread_Incomplete_Struct_ArgumentSelect0[] =
+-       "struct __jmp_buf_tag";
+-
+-#define    PTHREAD_INCOMPLETE_STRUCT_ARGUMENT_TEST_CT  1
+-static tTestDesc aPthread_Incomplete_Struct_ArgumentTests[] = {
+-  { TT_EGREP,    zPthread_Incomplete_Struct_ArgumentSelect0, (regex_t*)NULL }, };
+-
+-/*
+- *  Fix Command Arguments for Pthread_Incomplete_Struct_Argument
+- */
+-static const char* apzPthread_Incomplete_Struct_ArgumentPatch[] = {
+-    "format",
+-    "%1 *%2%3",
+-    "^(extern int __sigsetjmp \\(struct __jmp_buf_tag) (__env)\\[1\\](.*)$",
+-    (char*)NULL };
+-
+-/* * * * * * * * * * * * * * * * * * * * * * * * * *
+- *
+  *  Description of Read_Ret_Type fix
+  */
+ tSCC zRead_Ret_TypeName[] =
+@@ -11359,7 +11323,6 @@
+     OPENBSD_VA_START_FIXIDX,
+     OSF_NAMESPACE_A_FIXIDX,
+     OSF_NAMESPACE_C_FIXIDX,
+-    PTHREAD_INCOMPLETE_STRUCT_ARGUMENT_FIXIDX,
+     READ_RET_TYPE_FIXIDX,
+     RPC_XDR_LVALUE_CAST_A_FIXIDX,
+     RPC_XDR_LVALUE_CAST_B_FIXIDX,
+@@ -12364,11 +12327,6 @@
+      OSF_NAMESPACE_C_TEST_CT, FD_MACH_ONLY | FD_SUBROUTINE,
+      aOsf_Namespace_CTests,   apzOsf_Namespace_CPatch, 0 },
+ 
+-  {  zPthread_Incomplete_Struct_ArgumentName,    zPthread_Incomplete_Struct_ArgumentList,
+-     apzPthread_Incomplete_Struct_ArgumentMachs,
+-     PTHREAD_INCOMPLETE_STRUCT_ARGUMENT_TEST_CT, FD_MACH_ONLY | FD_SUBROUTINE,
+-     aPthread_Incomplete_Struct_ArgumentTests,   apzPthread_Incomplete_Struct_ArgumentPatch, 0 },
+-
+   {  zRead_Ret_TypeName,    zRead_Ret_TypeList,
+      apzRead_Ret_TypeMachs,
+      READ_RET_TYPE_TEST_CT, FD_MACH_ONLY | FD_SUBROUTINE,
+diff -Naur a/fixincludes/inclhack.def b/fixincludes/inclhack.def
+--- a/fixincludes/inclhack.def
++++ b/fixincludes/inclhack.def
+@@ -3800,22 +3800,6 @@
+ };
+ 
+ /*
+- * On broken glibc-2.3.3 systems an array of incomplete structures is
+- * passed to __sigsetjmp.  Fix that to take a pointer instead.
+- */
+-fix = {
+-    hackname  = pthread_incomplete_struct_argument;
+-    files     = pthread.h;
+-    select    = "struct __jmp_buf_tag";
+-    c_fix     = format;
+-    c_fix_arg = "%1 *%2%3";
+-    c_fix_arg = "^(extern int __sigsetjmp \\(struct __jmp_buf_tag) "
+-        "(__env)\\[1\\](.*)$";
+-    test_text = "extern int __sigsetjmp (struct __jmp_buf_tag __env[1], "
+-        "int __savemask);";
+-};
+-
+-/*
+  *  Fix return type of fread and fwrite on sysV68
+  */
+ fix = {
