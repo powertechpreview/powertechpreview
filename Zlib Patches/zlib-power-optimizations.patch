@@ -28,18 +28,17 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index b412dc7fe..e313f950e 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -5,6 +5,8 @@ project(zlib C)
- 
- set(VERSION "1.2.13")
+@@ -5,6 +5,7 @@ # ============================================================================
+ # configuration
+ # ============================================================================
  
 +option(POWER "Enable building power implementation")
-+
- set(INSTALL_BIN_DIR "${CMAKE_INSTALL_PREFIX}/bin" CACHE PATH "Installation directory for executables")
- set(INSTALL_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Installation directory for libraries")
- set(INSTALL_INC_DIR "${CMAKE_INSTALL_PREFIX}/include" CACHE PATH "Installation directory for headers")
-@@ -126,6 +128,75 @@ if(NOT MINGW)
-     )
- endif()
+ option(ZLIB_BUILD_TESTING "Enable Zlib Examples as tests" ON)
+ option(ZLIB_BUILD_SHARED "Enable building zlib shared library" ON)
+ option(ZLIB_BUILD_STATIC "Enable building zlib static library" ON)
+@@ -126,6 +127,75 @@ uncompr.c
+     zutil.c
+ )
  
 +if(CMAKE_COMPILER_IS_GNUCC)
 +
@@ -110,9 +109,9 @@ index b412dc7fe..e313f950e 100644
 +    endif()
 +endif()
 +
- # parse the full version number from zlib.h and include in ZLIB_FULL_VERSION
- file(READ ${CMAKE_CURRENT_SOURCE_DIR}/zlib.h _zlib_h_contents)
- string(REGEX REPLACE ".*#define[ \t]+ZLIB_VERSION[ \t]+\"([-0-9A-Za-z.]+)\".*"
+ if(WIN32)
+     set(zlib_static_suffix "s")
+     set(CMAKE_DEBUG_POSTFIX "d")
 diff --git a/configure b/configure
 index fa4d5daab..9ee7008c3 100755
 --- a/configure
@@ -341,17 +340,6 @@ index e313f950e..4ba992b6e 100644
  
                  set_source_files_properties(
                      ${ZLIB_POWER8}
-@@ -269,6 +270,10 @@ add_executable(example test/example.c)
-     target_link_libraries(example zlib)
-     add_test(example example)
- 
-+    add_executable(crc32_test test/crc32_test.c)
-+    target_link_libraries(crc32_test zlib)
-+    add_test(crc32_test crc32_test)
-+
-     add_executable(minigzip test/minigzip.c)
-     target_link_libraries(minigzip zlib)
- 
 diff --git a/Makefile.in b/Makefile.in
 index 7d2713f4c..408954d90 100644
 --- a/Makefile.in
@@ -2794,7 +2782,21 @@ index 000000000..3155553e6
 +    }
 +    return 0;
 +}
-
+diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
+index 15e8c75..0ec378a 100644
+--- a/test/CMakeLists.txt
++++ b/test/CMakeLists.txt
+@@ -21,6 +21,10 @@ if(ZLIB_BUILD_SHARED)
+     add_test(NAME zlib_example
+         COMMAND zlib_example)
+ 
++    add_executable(crc32_test test/crc32_test.c)
++    target_link_libraries(crc32_test zlib)
++    add_test(crc32_test crc32_test)
++
+     add_executable(minigzip minigzip.c)
+     target_compile_definitions(zlib
+         PRIVATE
 From e8c61767464de8d063366117f508359e5ca40a50 Mon Sep 17 00:00:00 2001
 From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
 Date: Wed, 25 Mar 2020 12:16:41 -0300
