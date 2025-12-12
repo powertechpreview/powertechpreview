@@ -1,7 +1,7 @@
 diff -ruNp a/configure b/configure
 --- a/configure
 +++ b/configure
-@@ -7636,6 +7636,12 @@ if test x"${build}" = x"${host}" ; then
+@@ -11657,6 +11657,12 @@ if test x"${build}" = x"${host}" ; then
    LDFLAGS_FOR_BUILD=${LDFLAGS_FOR_BUILD-${LDFLAGS}}
  fi
  
@@ -11,6 +11,6 @@ diff -ruNp a/configure b/configure
 +  CXXFLAGS=$CXXFLAGS' -Wno-error=class-memaccess'
 +fi
 +
- # On Canadian crosses, we'll be searching the right directories for
- # the previously-installed cross compiler, so don't bother to add
- # flags for directories within the install tree of the compiler
+ if test -d ${srcdir}/gcc; then
+   # On Canadian crosses, we'll be searching the right directories for the
+   # previously-installed cross compiler, so don't bother to add flags for
