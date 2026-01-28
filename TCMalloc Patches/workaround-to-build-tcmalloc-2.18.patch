@@ -1,0 +1,12 @@
+diff --git a/src/base/vdso_support.h b/src/base/vdso_support.h
+index 86c1264..c6c4f54 100644
+--- a/src/base/vdso_support.h
++++ b/src/base/vdso_support.h
+@@ -58,6 +58,7 @@
+ 
+ #include <config.h>
+ 
++#include "base/basictypes.h"
+ #include "base/elf_mem_image.h"  // IWYU pragma: keep
+ 
+ #ifdef HAVE_ELF_MEM_IMAGE
