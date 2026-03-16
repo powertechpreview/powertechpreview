@@ -2545,7 +2545,7 @@ diff --git a/crc32.c b/crc32.c
 index f8357b083..4e5830b86 100644
 --- a/crc32.c
 +++ b/crc32.c
-@@ -745,6 +745,13 @@ local z_word_t crc_word_big(data)
+@@ -623,6 +623,13 @@ local z_word_t crc_word_big(data)
  #endif
  
  /* ========================================================================= */
@@ -2556,9 +2556,9 @@ index f8357b083..4e5830b86 100644
 +#define crc32_z crc32_z_default
 +#endif /* Z_POWER_OPT */
 +
- unsigned long ZEXPORT crc32_z(unsigned long crc, const unsigned char FAR *buf,
-                               z_size_t len) {
+ uLong ZEXPORT crc32_z(uLong crc, const unsigned char FAR *buf, z_size_t len) {
      /* Return initial CRC, if requested. */
+     if (buf == Z_NULL) return 0;
 @@ -1066,6 +1073,11 @@ unsigned long ZEXPORT crc32_z(crc, buf, len)
      return crc ^ 0xffffffff;
  }
