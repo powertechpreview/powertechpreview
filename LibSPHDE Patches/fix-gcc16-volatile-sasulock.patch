@@ -1,0 +1,166 @@
+--- a/src/sasulock.cpp
++++ b/src/sasulock.cpp
+@@ -199,7 +199,7 @@
+   if ((writer_thread_id == this_thread) &&
+       (writer_task_id == this_task))
+   {
+-    writer_thread_lock_count++;
++    writer_thread_lock_count = writer_thread_lock_count + 1;
+ #ifdef mylockdebug
+     fprintf (stderr, "%s\n", __FUNCTION__);
+     fprintf (stderr, " thread[%ld,%ld] - lock obtained",
+@@ -209,7 +209,7 @@
+       writer_thread_lock_count);
+ #endif
+ #ifdef collectstats
+-    ++useageCount;
++    useageCount = useageCount + 1;
+ #endif
+     address = lockAddr;
+     spin_unlock(&data_lock);
+@@ -236,7 +236,7 @@
+       {
+         // this thread already has a read lock
+         readers[i].reader_thread_lock_count++;
+-        total_readers_count++;
++        total_readers_count = total_readers_count + 1;
+ #ifdef mylockdebug
+         fprintf (stderr, "%s\n", __FUNCTION__);
+         fprintf (stderr, " thread[%ld,%ld] - lock obtained",
+@@ -246,7 +246,7 @@
+         fprintf (stderr, " | total reader count = %i\n", total_readers_count);
+ #endif
+ #ifdef collectstats
+-	++useageCount;
++	useageCount = useageCount + 1;
+ #endif
+ 	address = lockAddr;
+         spin_unlock(&data_lock);
+@@ -258,14 +258,14 @@
+   // wait until all the writers are done.
+   while (status == SasUserLock__exclusive || writers_waiting)
+     {
+-      readers_waiting++;
++      readers_waiting = readers_waiting + 1;
+ 
+       SasUserLock::thread_sleep((vm_address_t)&readers_waiting,
+ 				&readers_waiting_sem, &data_lock);
+ 
+       spin_lock(&data_lock);	// need to relock since above unlocks
+       if (readers_waiting)
+-          readers_waiting--;
++          readers_waiting = readers_waiting - 1;
+ 
+     } // while
+ 
+@@ -288,11 +288,11 @@
+               fprintf (stderr, " thread[%ld,%ld] - thread is already in",
+                 (long int) this_task, (long int) this_thread);
+               fprintf (stderr, "the table with %d read thread lock count\n",
+-                total_readers_count++);
++                (total_readers_count = total_readers_count + 1));
+               // guess if this happens we will
+               // just give it to him...
+               readers[j].reader_thread_lock_count++;
+-              total_readers_count++;
++              total_readers_count = total_readers_count + 1;
+             }
+ #endif
+         }
+@@ -313,7 +313,7 @@
+             this_thread;
+           readers[j].reader_task_id = this_task;
+           readers[j].reader_thread_lock_count = 1;
+-          total_readers_count++;
++          total_readers_count = total_readers_count + 1;
+ 
+ #ifdef mylockdebug
+           fprintf (stderr, "%s\n", __FUNCTION__);
+@@ -326,7 +326,7 @@
+             total_readers_count);
+ #endif
+ #ifdef collectstats
+-	  ++useageCount;
++	  useageCount = useageCount + 1;
+ #endif
+ 	  address = lockAddr;
+           spin_unlock(&data_lock);
+@@ -387,7 +387,7 @@
+   if ((writer_thread_id == this_thread) &&
+       (writer_task_id == this_task))
+   {
+-    writer_thread_lock_count++;
++    writer_thread_lock_count = writer_thread_lock_count + 1;
+ #ifdef mylockdebug
+     fprintf (stderr, "%s\n", __FUNCTION__);
+     fprintf (stderr, " thread[%ld,%ld] - obtained\n",
+@@ -396,7 +396,7 @@
+       this, writer_thread_lock_count);
+ #endif
+ #ifdef collectstats
+-    ++useageCount;
++    useageCount = useageCount + 1;
+ #endif
+     address = lockAddr;
+     spin_unlock(&data_lock);
+@@ -406,14 +406,14 @@
+   // wait until the other write lock is released
+   while (status == SasUserLock__exclusive)
+   {
+-    writers_waiting++;
++    writers_waiting = writers_waiting + 1;
+ 
+     SasUserLock::thread_sleep(	(vm_address_t)&writers_waiting,
+ 				&writers_waiting_sem, &data_lock);
+ 
+     spin_lock(&data_lock);	// relock since sleep does an unlock
+     if (writers_waiting)
+-      writers_waiting--;
++      writers_waiting = writers_waiting - 1;
+   } // while
+ 
+   // mark status so other threads can not acquire NEW read locks
+@@ -445,14 +445,14 @@
+   while (total_readers_count)
+   {
+     // look like a writer so that the unlock code wakes us up.
+-    writers_waiting++;
++    writers_waiting = writers_waiting + 1;
+ 
+     SasUserLock::thread_sleep(	(vm_address_t)&writers_waiting,
+ 				&writers_waiting_sem, &data_lock);
+ 
+     spin_lock(&data_lock);
+     if (writers_waiting)
+-      writers_waiting--;
++      writers_waiting = writers_waiting - 1;
+   }
+   // no more readers, so we now have the write lock
+ 
+@@ -474,7 +474,7 @@
+   fprintf (stderr, " object  = %p\n", this);
+ #endif
+ #ifdef collectstats
+-  ++useageCount;
++  useageCount = useageCount + 1;
+ #endif
+   address = lockAddr;
+   writer_thread_id = this_thread;
+@@ -506,7 +506,7 @@
+   // so unlock a read lock
+   if (total_readers_count)
+   {
+-    total_readers_count--;
++    total_readers_count = total_readers_count - 1;
+ // Zero-out the address datamember to indicate the lock object
+ // is available for use.
+     if (total_readers_count==0)
+@@ -562,7 +562,7 @@
+   {
+     if (status == SasUserLock__exclusive)	// unlock a write lock
+     {
+-      writer_thread_lock_count--;
++      writer_thread_lock_count = writer_thread_lock_count - 1;
+ #ifdef coherenceCheck
+       if (writer_thread_lock_count < 0)
+       {
