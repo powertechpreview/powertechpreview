@@ -1,128 +1,3 @@
-diff --git a/src/testsuite/vec_f128_dummy.c b/src/testsuite/vec_f128_dummy.c
-index 1186621..ef8726d 100644
---- a/src/testsuite/vec_f128_dummy.c
-+++ b/src/testsuite/vec_f128_dummy.c
-@@ -10588,22 +10588,22 @@ test_vec_max8_f128uz (__binary128 vf1, __binary128 vf2,
- 		    __binary128 vf7, __binary128 vf8)
- {
-   __binary128 maxres;
--  vb128_t bool;
--
--  bool = vec_cmpgtuzqp (vf2, vf1);
--  maxres = vec_self128 (vf1, vf2, bool);
--  bool = vec_cmpgtuzqp (vf3, maxres);
--  maxres = vec_self128 (vf3, maxres, bool);
--  bool = vec_cmpgtuzqp (vf4, maxres);
--  maxres = vec_self128 (vf4, maxres, bool);
--  bool = vec_cmpgtuzqp (vf5, maxres);
--  maxres = vec_self128 (vf5, maxres, bool);
--  bool = vec_cmpgtuzqp (vf6, maxres);
--  maxres = vec_self128 (vf6, maxres, bool);
--  bool = vec_cmpgtuzqp (vf7, maxres);
--  maxres = vec_self128 (vf7, maxres, bool);
--  bool = vec_cmpgtuzqp (vf8, maxres);
--  maxres = vec_self128 (vf8, maxres, bool);
-+  vb128_t boolvalue;
-+
-+  boolvalue = vec_cmpgtuzqp (vf2, vf1);
-+  maxres = vec_self128 (vf1, vf2, boolvalue);
-+  boolvalue = vec_cmpgtuzqp (vf3, maxres);
-+  maxres = vec_self128 (vf3, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuzqp (vf4, maxres);
-+  maxres = vec_self128 (vf4, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuzqp (vf5, maxres);
-+  maxres = vec_self128 (vf5, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuzqp (vf6, maxres);
-+  maxres = vec_self128 (vf6, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuzqp (vf7, maxres);
-+  maxres = vec_self128 (vf7, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuzqp (vf8, maxres);
-+  maxres = vec_self128 (vf8, maxres, boolvalue);
- 
-   return maxres;
- }
-@@ -10615,22 +10615,22 @@ test_vec_max8_f128 (__binary128 vf1, __binary128 vf2,
- 		    __binary128 vf7, __binary128 vf8)
- {
-   __binary128 maxres;
--  vb128_t bool;
--
--  bool = vec_cmpgtuqp (vf2, vf1);
--  maxres = vec_self128 (vf1, vf2, bool);
--  bool = vec_cmpgtuqp (vf3, maxres);
--  maxres = vec_self128 (vf3, maxres, bool);
--  bool = vec_cmpgtuqp (vf4, maxres);
--  maxres = vec_self128 (vf4, maxres, bool);
--  bool = vec_cmpgtuqp (vf5, maxres);
--  maxres = vec_self128 (vf5, maxres, bool);
--  bool = vec_cmpgtuqp (vf6, maxres);
--  maxres = vec_self128 (vf6, maxres, bool);
--  bool = vec_cmpgtuqp (vf7, maxres);
--  maxres = vec_self128 (vf7, maxres, bool);
--  bool = vec_cmpgtuqp (vf8, maxres);
--  maxres = vec_self128 (vf8, maxres, bool);
-+  vb128_t boolvalue;
-+
-+  boolvalue = vec_cmpgtuqp (vf2, vf1);
-+  maxres = vec_self128 (vf1, vf2, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf3, maxres);
-+  maxres = vec_self128 (vf3, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf4, maxres);
-+  maxres = vec_self128 (vf4, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf5, maxres);
-+  maxres = vec_self128 (vf5, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf6, maxres);
-+  maxres = vec_self128 (vf6, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf7, maxres);
-+  maxres = vec_self128 (vf7, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf8, maxres);
-+  maxres = vec_self128 (vf8, maxres, boolvalue);
- 
-   return maxres;
- }
-diff --git a/src/testsuite/vec_perf_f128.c b/src/testsuite/vec_perf_f128.c
-index 06e095f..551d184 100644
---- a/src/testsuite/vec_perf_f128.c
-+++ b/src/testsuite/vec_perf_f128.c
-@@ -304,22 +304,22 @@ test_lib_max8_f128 (__binary128 vf1, __binary128 vf2,
- 		    __binary128 vf7, __binary128 vf8)
- {
-   __binary128 maxres;
--  vb128_t bool;
--
--  bool = test_vec_cmpgtuqp (vf2, vf1);
--  maxres = vec_self128 (vf1, vf2, bool);
--  bool = test_vec_cmpgtuqp (vf3, maxres);
--  maxres = vec_self128 (vf3, maxres, bool);
--  bool = test_vec_cmpgtuqp (vf4, maxres);
--  maxres = vec_self128 (vf4, maxres, bool);
--  bool = test_vec_cmpgtuqp (vf5, maxres);
--  maxres = vec_self128 (vf5, maxres, bool);
--  bool = test_vec_cmpgtuqp (vf6, maxres);
--  maxres = vec_self128 (vf6, maxres, bool);
--  bool = test_vec_cmpgtuqp (vf7, maxres);
--  maxres = vec_self128 (vf7, maxres, bool);
--  bool = test_vec_cmpgtuqp (vf8, maxres);
--  maxres = vec_self128 (vf8, maxres, bool);
-+  vb128_t boolvalue;
-+
-+  boolvalue = test_vec_cmpgtuqp (vf2, vf1);
-+  maxres = vec_self128 (vf1, vf2, boolvalue);
-+  boolvalue = test_vec_cmpgtuqp (vf3, maxres);
-+  maxres = vec_self128 (vf3, maxres, boolvalue);
-+  boolvalue = test_vec_cmpgtuqp (vf4, maxres);
-+  maxres = vec_self128 (vf4, maxres, boolvalue);
-+  boolvalue = test_vec_cmpgtuqp (vf5, maxres);
-+  maxres = vec_self128 (vf5, maxres, boolvalue);
-+  boolvalue = test_vec_cmpgtuqp (vf6, maxres);
-+  maxres = vec_self128 (vf6, maxres, boolvalue);
-+  boolvalue = test_vec_cmpgtuqp (vf7, maxres);
-+  maxres = vec_self128 (vf7, maxres, boolvalue);
-+  boolvalue = test_vec_cmpgtuqp (vf8, maxres);
-+  maxres = vec_self128 (vf8, maxres, boolvalue);
- 
-   return maxres;
- }
 diff --git a/src/testsuite/vec_pwr9_dummy.c b/src/testsuite/vec_pwr9_dummy.c
 index 4d0f225..98d447a 100644
 --- a/src/testsuite/vec_pwr9_dummy.c
@@ -147,22 +22,22 @@ index 4d0f225..98d447a 100644
 -  maxres = vec_self128 (vf7, maxres, bool);
 -  bool = vec_cmpgtuqp (vf8, maxres);
 -  maxres = vec_self128 (vf8, maxres, bool);
-+  vb128_t boolvalue;
++  vb128_t b00l;
 +
-+  boolvalue = vec_cmpgtuqp (vf2, vf1);
-+  maxres = vec_self128 (vf1, vf2, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf3, maxres);
-+  maxres = vec_self128 (vf3, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf4, maxres);
-+  maxres = vec_self128 (vf4, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf5, maxres);
-+  maxres = vec_self128 (vf5, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf6, maxres);
-+  maxres = vec_self128 (vf6, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf7, maxres);
-+  maxres = vec_self128 (vf7, maxres, boolvalue);
-+  boolvalue = vec_cmpgtuqp (vf8, maxres);
-+  maxres = vec_self128 (vf8, maxres, boolvalue);
++  b00l = vec_cmpgtuqp (vf2, vf1);
++  maxres = vec_self128 (vf1, vf2, b00l);
++  b00l = vec_cmpgtuqp (vf3, maxres);
++  maxres = vec_self128 (vf3, maxres, b00l);
++  b00l = vec_cmpgtuqp (vf4, maxres);
++  maxres = vec_self128 (vf4, maxres, b00l);
++  b00l = vec_cmpgtuqp (vf5, maxres);
++  maxres = vec_self128 (vf5, maxres, b00l);
++  b00l = vec_cmpgtuqp (vf6, maxres);
++  maxres = vec_self128 (vf6, maxres, b00l);
++  b00l = vec_cmpgtuqp (vf7, maxres);
++  maxres = vec_self128 (vf7, maxres, b00l);
++  b00l = vec_cmpgtuqp (vf8, maxres);
++  maxres = vec_self128 (vf8, maxres, b00l);
  
    return maxres;
  }
