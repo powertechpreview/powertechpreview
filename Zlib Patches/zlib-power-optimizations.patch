@@ -2787,16 +2787,16 @@ index 15e8c75..0ec378a 100644
 --- a/test/CMakeLists.txt
 +++ b/test/CMakeLists.txt
 @@ -21,6 +21,10 @@ if(ZLIB_BUILD_SHARED)
-     add_test(NAME zlib_example
-         COMMAND zlib_example)
+     target_compile_definitions(zlib_example PRIVATE ZLIB_BUILD)
+     add_test(NAME zlib_example COMMAND zlib_example)
  
 +    add_executable(crc32_test test/crc32_test.c)
 +    target_link_libraries(crc32_test zlib)
 +    add_test(crc32_test crc32_test)
 +
-     add_executable(minigzip minigzip.c)
-     target_compile_definitions(zlib
-         PRIVATE
+     add_executable(zlib_minigzip minigzip.c)
+     target_compile_definitions(
+         zlib_minigzip PRIVATE $<$<BOOL:${HAVE___ATTR__VIS_HIDDEN}>:HAVE_HIDDEN>)
 From e8c61767464de8d063366117f508359e5ca40a50 Mon Sep 17 00:00:00 2001
 From: Tulio Magno Quites Machado Filho <tuliom@linux.ibm.com>
 Date: Wed, 25 Mar 2020 12:16:41 -0300
