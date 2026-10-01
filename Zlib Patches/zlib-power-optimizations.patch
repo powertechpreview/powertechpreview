@@ -2794,7 +2794,7 @@ index 15e8c75..0ec378a 100644
 +    target_link_libraries(crc32_test zlib)
 +    add_test(crc32_test crc32_test)
 +
-     add_executable(zlib_minigzip minigzip.c)
+     add_executable(minigzip minigzip.c)
      target_compile_definitions(
          zlib_minigzip PRIVATE $<$<BOOL:${HAVE___ATTR__VIS_HIDDEN}>:HAVE_HIDDEN>)
 From e8c61767464de8d063366117f508359e5ca40a50 Mon Sep 17 00:00:00 2001
