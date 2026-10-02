@@ -1,0 +1,50 @@
+From 34cf4b2040d1cf58292214fdacf3033080289091 Mon Sep 17 00:00:00 2001
+From: Carl Love <cel@us.ibm.com>
+Date: Tue, 23 Jul 2024 16:36:20 -0500
+Subject: [PATCH] itrace, add print of the function itrace enters and leaves
+ when the verbose level is greater than zero, i.e. at least one -v is
+ specicfied on the command line.
+
+---
+ itrace/callstack.c | 8 ++++++++
+ itrace/clo.c       | 1 +
+ 2 files changed, 9 insertions(+)
+
+diff --git a/itrace/callstack.c b/itrace/callstack.c
+index af305c9..9007028 100644
+--- a/itrace/callstack.c
++++ b/itrace/callstack.c
+@@ -119,6 +119,10 @@ static void function_entered(fn_node* fn, LkTraceExtent fromTrace, Bool caller_p
+    }
+ #endif
+ 
++   if (VG_(clo_verbosity) > 1)  /* Enable print for valgrind -v or higher */
++      VG_(printf)("Itrace, entered function %s, total_insns_traced = %lld\n",
++                  fn->name, total_insns_traced);
++
+    if (CLG_(clo).num_insns_to_trace &&
+             total_insns_traced > CLG_(clo).num_insns_to_trace) {
+       fn->trace = Lk_TrxtNone;
+@@ -211,6 +215,10 @@ static void function_left(fn_node* fn)
+    }
+ #endif
+ 
++   if (VG_(clo_verbosity) > 1)  /* Enable print for valgrind -v or higher */
++       VG_(printf)("Itrace, left function %s, total_insns_traced = %lld\n",
++                   fn->name, total_insns_traced);
++
+    /* If user specified a value for num_insns_before_start, we may have been counting the
+     * instructions to skip when we encountered a call to another function.  That call would
+     * have paused the skipping of instructions for the function of interest (see
+diff --git a/itrace/clo.c b/itrace/clo.c
+index 2e89151..059d57b 100644
+--- a/itrace/clo.c
++++ b/itrace/clo.c
+@@ -553,6 +553,7 @@ void _print_usage(void)
+ "    --fnname=<func>           Function to be traced.[_dl_runtime_resolve]\n"
+ "                              NOTE: Use --demangle=no to specify a mangled C++ function name,\n"
+ "                                    and do not include leading '.'.\n"
++"                              NOTE: -v will print function names seen by itrace.\n"
+ "    --fn-start=<func> (Optional).  Do not begin tracing until this function is entered. \n"
+ "\n   The Next four options can be used independently or in any combination\n"
+ "    --num-insns-before-start  Number of instructions to skip before tracing starts.\n"

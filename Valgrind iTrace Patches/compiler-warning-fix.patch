@@ -1,0 +1,24 @@
+From 5bd8ad1d05d27201cd130a8fece212c20b5aaecb Mon Sep 17 00:00:00 2001
+From: Carl Love <cel@us.ibm.com>
+Date: Tue, 23 Jul 2024 16:43:28 -0500
+Subject: [PATCH] Compiler warning fix
+
+---
+ itrace/callstack.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/itrace/callstack.c b/itrace/callstack.c
+index de577bf..af305c9 100644
+--- a/itrace/callstack.c
++++ b/itrace/callstack.c
+@@ -341,8 +341,8 @@ void CLG_(push_call_stack)(BBCC* from, UInt jmp, BBCC* to, Addr sp, Bool skip)
+ 				BB* bb = jcc->to->bb;
+ 				if (s>40) s=40;
+ 				VG_(printf)("%s> %s(0x%x, 0x%x, ...) [%s / %p]\n", spaces[s%4]+40-s, bb->fn->name,
+-						pars ? pars[1]:0,
+-								pars ? pars[2]:0,
++                                            (unsigned int)(pars ? pars[1]:0),
++                                            (unsigned int)(pars ? pars[2]:0),
+ 										bb->obj->name + bb->obj->last_slash_pos,
+ 										(void *)bb->offset);
+ 			}
